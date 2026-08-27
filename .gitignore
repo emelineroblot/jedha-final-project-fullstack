@@ -633,3 +633,6 @@ mlartifacts/
 # Docs de cadrage / contexte projet (local uniquement)
 Contexte_projet.txt
 synthese.md
+
+# Audit interne (local uniquement)
+docs/audit.md
