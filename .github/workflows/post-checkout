@@ -1,0 +1,16 @@
+#!/bin/bash
+# .github/workflows/post-checkout
+echo "Welcome to the Final Project Repository!"
+# Check if .env exists
+if [ ! -f "./.env" ]; then
+    if [ -f "./.github/workflows/.env.template" ]; then
+        echo "Creating .env from .env.template..."
+        cp ./.github/workflows/.env.template ./.env
+        echo "✅ .env file created."
+        echo "⚠️  Remember to edit .env with your personal credentials!"
+    else
+        echo "❌ .env.template not found. Please ask your team."
+    fi
+else
+    echo "✅ .env already present."
+fi

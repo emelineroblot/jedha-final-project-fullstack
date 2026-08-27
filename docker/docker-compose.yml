@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: food_impact_db
+    env_file: ../.env
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-food_impact}
+      POSTGRES_USER:     ${POSTGRES_USER:-food_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-food_pass}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-food_user} -d ${POSTGRES_DB:-food_impact}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

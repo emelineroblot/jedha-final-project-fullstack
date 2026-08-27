@@ -1,0 +1,117 @@
+// ============================================================
+// Schéma Base de Données - Impact Environnemental Assiette Mondiale
+// Projet Jedha Bloc 6 - 2026
+// Visualiser sur : https://dbdiagram.io
+// Système : OLAP - Schéma en étoile (Star Schema)
+// ============================================================
+
+
+// ============================================================
+// TABLES DE FAIT (Fact Tables)
+// ============================================================
+
+Table Fait_Production {
+  production_id  integer     [pk, increment, note: "Clé primaire"]
+  pays_id        integer     [not null, ref: > Dim_Pays.pays_id, note: "FK → Dim_Pays"]
+  produit_id     integer     [not null, ref: > Dim_Produits.produit_id, note: "FK → Dim_Produits"]
+  annee_id       integer     [not null, ref: > Dim_Temps.annee_id, note: "FK → Dim_Temps"]
+  element        varchar(10) [not null, note: "Food ou Feed"]
+  quantite_1000t float       [note: "Production en milliers de tonnes (unité FAO)"]
+
+  Note: "Production alimentaire mondiale par pays, produit et année. Source: FAOSTAT (1961-2022)."
+}
+
+Table Fait_Impact {
+  impact_id                   integer [pk, increment, note: "Clé primaire"]
+  produit_id                  integer [not null, ref: > Dim_Produits.produit_id, note: "FK → Dim_Produits"]
+  // Émissions
+  co2_land_use_per_kg         float   [note: "kgCO₂eq/kg - Émissions changement usage des terres"]
+  co2_animal_feed_per_kg      float   [note: "kgCO₂eq/kg - Émissions alimentation animale"]
+  co2_farm_per_kg             float   [note: "kgCO₂eq/kg - Émissions en ferme"]
+  co2_processing_per_kg       float   [note: "kgCO₂eq/kg - Émissions transformation"]
+  co2_transport_per_kg        float   [note: "kgCO₂eq/kg - Émissions transport"]
+  co2_packaging_per_kg        float   [note: "kgCO₂eq/kg - Émissions emballage"]
+  co2_retail_per_kg           float   [note: "kgCO₂eq/kg - Émissions distribution"]
+  co2_total_per_kg            float   [note: "kgCO₂eq/kg - Émissions GES totales (variable cible ML)"]
+  // Eau
+  freshwater_per_kg           float   [note: "litres/kg - Consommation eau douce"]
+  scarcity_water_per_kg       float   [note: "litres/kg - Eau pondérée par rareté"]
+  // Terres
+  land_use_per_kg             float   [note: "m²/kg - Usage des terres"]
+  // Eutrophisation
+  eutrophying_per_kg          float   [note: "gPO₄eq/kg - Émissions eutrophisantes"]
+
+  Note: "Impact environnemental par kg de produit alimentaire. Source: Our World in Data / Poore & Nemecek (2018). Table statique (pas de dimension temporelle)."
+}
+
+
+// ============================================================
+// TABLES DE DIMENSION (Dimension Tables)
+// ============================================================
+
+Table Dim_Pays {
+  pays_id    integer     [pk, increment, note: "Clé primaire"]
+  nom_pays   varchar(100)[not null, note: "Nom complet du pays (source FAO)"]
+  code_fao   varchar(10) [note: "Code abrégé FAO (ex: FRA, AFG)"]
+  code_iso2  varchar(2)  [note: "Code ISO 3166-1 alpha-2 (ex: FR)"]
+  code_iso3  varchar(3)  [note: "Code ISO 3166-1 alpha-3 (ex: FRA)"]
+  region     varchar(100)[note: "Région géographique (ex: Europe, Asie du Sud)"]
+  latitude   float       [note: "Latitude du centre du pays"]
+  longitude  float       [note: "Longitude du centre du pays"]
+
+  Note: "Référentiel des pays. Inclut les codes FAO et ISO pour les jointures avec API externes (World Bank, OWID)."
+}
+
+Table Dim_Produits {
+  produit_id       integer     [pk, increment, note: "Clé primaire"]
+  nom_fao          varchar(200)[note: "Nom du produit dans FAO.csv (ex: Wheat and products)"]
+  nom_impact       varchar(200)[note: "Nom du produit dans Food_Production.csv (ex: Wheat & Rye)"]
+  categorie        varchar(100)[not null, note: "Catégorie principale (céréales, viandes, légumes, produits laitiers, huiles, sucres, légumineuses, fruits de mer, boissons)"]
+  sous_categorie   varchar(100)[note: "Sous-catégorie optionnelle (ex: viande rouge, volaille)"]
+  match_quality    varchar(20) [note: "Qualité de correspondance FAO↔Impact: exact, approximate, missing"]
+
+  Note: "Référentiel des produits alimentaires. Assure la correspondance entre la nomenclature FAO et celle de Food_Production.csv."
+}
+
+Table Dim_Temps {
+  annee_id integer [pk, note: "Clé primaire = année (ex: 1961)"]
+  annee    integer [not null, note: "Année (1961-2022)"]
+  decennie integer [note: "Décennie (ex: 1960, 1970, 1980)"]
+  periode  varchar(10) [note: "Label période (ex: 1960s, 1970s)"]
+
+  Note: "Dimension temporelle. Couvre 1961-2022 après enrichissement FAOSTAT."
+}
+
+Table Dim_Socio_Economique {
+  socio_id         integer [pk, increment, note: "Clé primaire"]
+  pays_id          integer [not null, ref: > Dim_Pays.pays_id, note: "FK → Dim_Pays"]
+  annee_id         integer [not null, ref: > Dim_Temps.annee_id, note: "FK → Dim_Temps"]
+  pib_per_capita   float   [note: "PIB par habitant en USD courants. Source: World Bank (NY.GDP.PCAP.CD)"]
+  taux_urbanisation float  [note: "% population urbaine. Source: World Bank (SP.URB.TOTL.IN.ZS)"]
+  population       bigint  [note: "Population totale. Source: World Bank (SP.POP.TOTL)"]
+  surface_agricole float   [note: "% terres agricoles. Source: World Bank (AG.LND.AGRI.ZS)"]
+
+  Note: "Données socio-économiques par pays et par année. Source: World Bank API. Utilisées comme features ML."
+}
+
+
+// ============================================================
+// VUE ANALYTIQUE (résultat du calcul ETL)
+// Calculée pendant l'ETL, stockée dans le Data Warehouse
+// ============================================================
+
+Table Fait_Impact_Pays_Annee {
+  impact_pays_id          integer [pk, increment, note: "Clé primaire"]
+  pays_id                 integer [not null, ref: > Dim_Pays.pays_id]
+  annee_id                integer [not null, ref: > Dim_Temps.annee_id]
+  produit_id              integer [not null, ref: > Dim_Produits.produit_id]
+  // Production
+  quantite_1000t          float   [note: "Production en milliers de tonnes"]
+  quantite_kg             float   [note: "Production en kg (quantite_1000t × 1_000_000)"]
+  // Impact calculé
+  co2_total_kg            float   [note: "kgCO₂eq total = quantite_kg × co2_total_per_kg  ← VARIABLE CIBLE ML"]
+  freshwater_total_litres float   [note: "Litres eau totaux = quantite_kg × freshwater_per_kg"]
+  land_use_total_m2       float   [note: "m² terres totaux = quantite_kg × land_use_per_kg"]
+
+  Note: "Table principale pour le ML et l'EDA. Calculée par le pipeline ETL via la jointure Fait_Production × Fait_Impact. Granularité: pays × produit × année."
+}

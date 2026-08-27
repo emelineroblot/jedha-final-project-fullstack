@@ -1,0 +1,14 @@
+# Core libs
+
+numpy
+pandas
+plotly
+
+# ML
+
+scikit-learn
+
+# Notebooks / env
+
+ipykernel
+jupyterlab

@@ -1,0 +1,18 @@
+{
+  "fao": {
+    "rows": 21477,
+    "columns": 64,
+    "countries": 174,
+    "products": 115,
+    "years": 53,
+    "memory_mb": 15.391791343688965,
+    "duplicates": 0,
+    "outliers_pct": 17.470668504385152
+  },
+  "impact": {
+    "rows": 43,
+    "columns": 23,
+    "products": 43,
+    "memory_kb": 9.998046875
+  }
+}
