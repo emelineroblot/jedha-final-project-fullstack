@@ -603,15 +603,19 @@ FodyWeavers.xsd
 # Virtualenv
 # http://iamzed.com/2009/05/07/a-primer-on-virtualenv/
 .Python
-[Bb]in
-[Ii]nclude
-[Ll]ib
-[Ll]ib64
-[Ll]ocal
-[Ss]cripts
 pyvenv.cfg
-.venv
 pip-selfcheck.json
+
+# Dossiers d'environnement virtuel — ignorés en tant que RACINES.
+# ⚠️ Ne jamais remettre les motifs nus [Bb]in / [Ll]ib / [Ss]cripts du template
+# d'origine : sans ancrage, `[Ss]cripts` excluait le dossier scripts/ du projet,
+# qui n'a donc jamais été versionné. Les sous-dossiers d'un venv sont couverts
+# par l'exclusion du venv lui-même.
+.venv/
+venv/
+ENV/
+env/
+.env.d/
 
 ### CUSTOM IGNORE RULES FOR THIS PROJECT ###
 # Ignore data and model folders
@@ -620,6 +624,7 @@ models/*
 # Except .gitkeep files
 !data/.gitkeep
 !models/.gitkeep
+!models/README.md
 
 # Claude Code
 .claude/
@@ -636,3 +641,6 @@ synthese.md
 
 # Audit interne (local uniquement)
 docs/audit.md
+
+# Secrets Streamlit (jamais versionnes)
+.streamlit/secrets.toml

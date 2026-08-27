@@ -1,0 +1,155 @@
+{
+  "A_calculateur": {
+    "ridge__aleatoire": {
+      "rmse": 1.9760657505705748,
+      "mae": 1.6059614630802892,
+      "r2": 0.296029031679401,
+      "n_train": 184495,
+      "n_test": 46124,
+      "fit_seconds": 0.6
+    },
+    "random_forest__aleatoire": {
+      "rmse": 0.5506012928515911,
+      "mae": 0.36829279492767597,
+      "r2": 0.9453454376602421,
+      "n_train": 184495,
+      "n_test": 46124,
+      "fit_seconds": 26.4
+    },
+    "ridge__groupe_pays": {
+      "rmse": 2.0203561445770566,
+      "mae": 1.6421806114897723,
+      "r2": 0.21251682069512878,
+      "n_train": 182112,
+      "n_test": 48507,
+      "fit_seconds": 0.5
+    },
+    "random_forest__groupe_pays": {
+      "rmse": 0.7340858550659567,
+      "mae": 0.481244808074728,
+      "r2": 0.8960369212787114,
+      "n_train": 182112,
+      "n_test": 48507,
+      "fit_seconds": 26.1
+    },
+    "random_forest_tuned__aleatoire": {
+      "r2": 0.9453454376602421,
+      "rmse": 0.5506012928515911
+    },
+    "feature_importances_top10": {
+      "quantite_1000t": 0.8269,
+      "categorie_Meat": 0.0565,
+      "population": 0.0272,
+      "categorie_Vegetables": 0.0115,
+      "categorie_Roots & Tubers": 0.0102,
+      "categorie_Oils & Fats": 0.01,
+      "categorie_Eggs": 0.0079,
+      "taux_urbanisation": 0.0077,
+      "surface_agricole": 0.0077,
+      "categorie_Fruits": 0.0061
+    },
+    "artifact_mb": 23.5,
+    "quantite_1000t_range": [
+      1.0,
+      587135.0
+    ]
+  },
+  "B_predictif": {
+    "baseline_moyenne__aleatoire": {
+      "r2": -0.000297020410731097,
+      "rmse": 0.6169650637658017
+    },
+    "ridge__aleatoire": {
+      "rmse": 0.3733009243910879,
+      "mae": 0.2914078935749289,
+      "r2": 0.6337935737524616,
+      "n_train": 6547,
+      "n_test": 1637
+    },
+    "random_forest__aleatoire": {
+      "rmse": 0.14461662636677886,
+      "mae": 0.09813573857961753,
+      "r2": 0.9450403089802437,
+      "n_train": 6547,
+      "n_test": 1637
+    },
+    "baseline_moyenne__groupe_pays": {
+      "r2": -0.00607687942830637,
+      "rmse": 0.6742236445859389
+    },
+    "ridge__groupe_pays": {
+      "rmse": 0.404884888916473,
+      "mae": 0.33040486266779534,
+      "r2": 0.6371840696509037,
+      "n_train": 6524,
+      "n_test": 1660
+    },
+    "random_forest__groupe_pays": {
+      "rmse": 0.34991478036579465,
+      "mae": 0.261940137437026,
+      "r2": 0.7290134188927953,
+      "n_train": 6524,
+      "n_test": 1660
+    }
+  },
+  "C_clustering": {
+    "k_retenu": 5,
+    "silhouette": 0.2541,
+    "silhouettes_par_k": {
+      "2": 0.327,
+      "3": 0.2793,
+      "4": 0.2733,
+      "5": 0.2541,
+      "6": 0.2478,
+      "7": 0.2468,
+      "8": 0.2415
+    },
+    "inerties_par_k": {
+      "2": 27076.3,
+      "3": 21998.5,
+      "4": 18284.1,
+      "5": 15672.5,
+      "6": 14162.1,
+      "7": 12976.4,
+      "8": 11842.2
+    },
+    "profils_moyens": {
+      "0": {
+        "co2_per_capita": 948.85,
+        "pib_per_capita": 8600.44,
+        "taux_urbanisation": 67.8,
+        "pct_animal": 69.37,
+        "surface_agricole": 17.06
+      },
+      "1": {
+        "co2_per_capita": 1153.8,
+        "pib_per_capita": 7988.36,
+        "taux_urbanisation": 68.46,
+        "pct_animal": 68.65,
+        "surface_agricole": 59.87
+      },
+      "2": {
+        "co2_per_capita": 355.71,
+        "pib_per_capita": 685.87,
+        "taux_urbanisation": 29.01,
+        "pct_animal": 34.38,
+        "surface_agricole": 40.69
+      },
+      "3": {
+        "co2_per_capita": 1381.15,
+        "pib_per_capita": 47904.04,
+        "taux_urbanisation": 82.41,
+        "pct_animal": 70.82,
+        "surface_agricole": 28.89
+      },
+      "4": {
+        "co2_per_capita": 463.82,
+        "pib_per_capita": 1243.58,
+        "taux_urbanisation": 36.73,
+        "pct_animal": 61.77,
+        "surface_agricole": 37.46
+      }
+    },
+    "n_observations": 8493
+  }
+}

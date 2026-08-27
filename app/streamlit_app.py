@@ -4,17 +4,17 @@ Application Streamlit — Jedha Bloc 6
 """
 
 import os
+from pathlib import Path
+
 import joblib
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import streamlit as st
-from pathlib import Path
 from dotenv import load_dotenv
+from plotly.subplots import make_subplots
 from sqlalchemy import create_engine, text
-from sklearn.preprocessing import StandardScaler
 
 # ──────────────────────────────────────────────────────────────
 # Configuration
@@ -29,27 +29,32 @@ st.set_page_config(
 BASE_DIR = Path(__file__).parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-CLUSTER_LABELS = {
-    0: "Producteurs intensifs",
-    1: "Développement agricole",
-    2: "Pays riches",
-    3: "Émergents urbains",
-    4: "Faible revenu",
+# ⚠️ Les INDICES de cluster produits par KMeans sont arbitraires et changent à
+# chaque réentraînement. Les libellés sont donc lus depuis l'artefact
+# (`bundle['labels']`, calculé par scripts/train_model.py à partir des profils
+# moyens) ; ce dictionnaire n'est qu'un repli si l'artefact est au format hérité.
+# Cf. docs/audit.md §2.2.
+CLUSTER_LABELS_FALLBACK = {
+    0: "Profil 0", 1: "Profil 1", 2: "Profil 2", 3: "Profil 3", 4: "Profil 4",
 }
+
+# Couleurs et descriptions sont indexées par LIBELLÉ, pas par numéro de cluster :
+# c'est le libellé qui porte le sens, et lui seul est stable.
 CLUSTER_COLORS = {
-    0: "#e74c3c",
-    1: "#3498db",
-    2: "#2ecc71",
-    3: "#f39c12",
-    4: "#9b59b6",
+    "Pays riches":            "#2ecc71",
+    "Émergents urbains":      "#f39c12",
+    "Producteurs intensifs":  "#e74c3c",
+    "Développement agricole": "#3498db",
+    "Faible revenu":          "#9b59b6",
 }
 CLUSTER_DESCRIPTIONS = {
-    0: "CO₂/hab élevé malgré faible PIB. Production massive de tubercules/racines.",
-    1: "PIB intermédiaire, agriculture étendue, part animale modérée.",
-    2: "PIB très élevé, très urbanisés, part animale la plus forte.",
-    3: "PIB moyen, très urbanisés, peu de surface agricole → importateurs nets.",
-    4: "CO₂/hab le plus bas, peu urbanisés, faible part animale.",
+    "Pays riches":            "PIB/hab. le plus élevé, très urbanisés, part animale la plus forte.",
+    "Émergents urbains":      "PIB intermédiaire, très urbanisés, peu de surface agricole → importateurs nets.",
+    "Producteurs intensifs":  "Surface agricole la plus étendue, CO₂/hab. élevé à PIB moyen.",
+    "Développement agricole": "PIB intermédiaire, agriculture étendue, part animale modérée.",
+    "Faible revenu":          "CO₂/hab. le plus bas, peu urbanisés, faible part animale.",
 }
+COULEUR_DEFAUT = "#7f8c8d"
 
 FEATURES_NUM = ["quantite_1000t", "pib_per_capita", "taux_urbanisation", "population", "surface_agricole"]
 FEATURES_CAT = ["categorie", "region"]
@@ -123,6 +128,12 @@ CO2_FACTORS = {
     "Racines & Tubercules":      0.3,
 }
 
+# ⚠️ Ces libellés DOIVENT correspondre exactement aux catégories produites par
+# `scripts/_mappings.py::categorize()` et stockées dans dim_produits.categorie.
+# Le modèle a été entraîné sur ces valeurs : un libellé inconnu est silencieusement
+# encodé en vecteur nul par le OneHotEncoder (handle_unknown='ignore') et dégrade
+# la prédiction sans lever d'erreur. Cf. docs/audit.md §2.8.
+# Le test tests/test_app_constants.py verrouille cette correspondance.
 FOOD_CATEGORY = {
     "Boeuf":                    "Meat",
     "Agneau":                   "Meat",
@@ -131,15 +142,18 @@ FOOD_CATEGORY = {
     "Poisson (élevage)":        "Fish & Seafood",
     "Oeufs":                    "Eggs",
     "Lait / Produits laitiers": "Dairy",
-    "Riz":                      "Cereals & Grains",
-    "Blé / Céréales":           "Cereals & Grains",
-    "Légumineuses":             "Pulses",
+    "Riz":                      "Cereals",
+    "Blé / Céréales":           "Cereals",
+    "Légumineuses":             "Legumes",
     "Légumes":                  "Vegetables",
     "Fruits":                   "Fruits",
-    "Sucre":                    "Sugar & Sweeteners",
-    "Huiles végétales":         "Vegetable Oils",
+    "Sucre":                    "Sugar",
+    "Huiles végétales":         "Oils & Fats",
     "Racines & Tubercules":     "Roots & Tubers",
 }
+
+# Catégories animales — utilisées pour la part animale du CO₂ (app + SQL).
+CATEGORIES_ANIMALES = ("Meat", "Dairy", "Eggs", "Fish & Seafood")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -157,17 +171,60 @@ def get_engine():
 
 @st.cache_resource
 def load_models():
+    """Charge les modèles. Ne lève jamais : l'app doit rester utilisable sans eux.
+
+    `model_clustering.pkl` est attendu au format {'scaler': ..., 'kmeans': ...}.
+    L'ancien format (KMeans nu) est encore accepté mais signalé : sans le scaler
+    d'entraînement, les clusters prédits ne sont pas comparables d'une année à
+    l'autre (cf. docs/audit.md §2.2).
+    """
     model_dir = BASE_DIR / "models"
-    return (
-        joblib.load(model_dir / "model_impact.pkl"),
-        joblib.load(model_dir / "model_clustering.pkl"),
-    )
+    impact, clustering = None, None
+
+    try:
+        impact = joblib.load(model_dir / "model_impact.pkl")
+    except Exception as exc:  # noqa: BLE001 — dégradation volontaire
+        st.session_state["_err_model_impact"] = str(exc)
+
+    try:
+        raw = joblib.load(model_dir / "model_clustering.pkl")
+        if isinstance(raw, dict) and "kmeans" in raw and "scaler" in raw:
+            clustering = raw
+        else:
+            clustering = {"kmeans": raw, "scaler": None}
+    except Exception as exc:  # noqa: BLE001
+        st.session_state["_err_model_clustering"] = str(exc)
+
+    return impact, clustering
+
+
+def fmt_co2(kg) -> str:
+    """Formate une masse de CO₂ exprimée en KILOGRAMMES.
+
+    1 t = 1e3 kg · 1 kt = 1e6 kg · 1 Mt = 1e9 kg · 1 Gt = 1e12 kg
+    """
+    if kg is None or pd.isna(kg):
+        return "N/A"
+    tonnes = kg / 1e3
+    if abs(tonnes) >= 1e9:
+        return f"{tonnes / 1e9:.2f} Gt"
+    if abs(tonnes) >= 1e6:
+        return f"{tonnes / 1e6:.2f} Mt"
+    if abs(tonnes) >= 1e3:
+        return f"{tonnes / 1e3:.2f} kt"
+    return f"{tonnes:,.0f} t"
+
+
+def kg_to_mt(kg):
+    """kg → mégatonnes (1 Mt = 1e9 kg)."""
+    return kg / 1e9
 
 
 @st.cache_data(ttl=3600)
-def query(_engine, sql: str) -> pd.DataFrame:
+def query(_engine, sql: str, params: dict | None = None) -> pd.DataFrame:
+    """Exécute une requête en paramètres liés (jamais de f-string dans le SQL)."""
     with _engine.connect() as conn:
-        return pd.read_sql(text(sql), conn)
+        return pd.read_sql(text(sql), conn, params=params or {})
 
 
 def db_available(engine) -> bool:
@@ -192,7 +249,14 @@ def load_ref_data(_engine, connected: bool):
 # Queries métier
 # ──────────────────────────────────────────────────────────────
 def query_pays_annee(engine, annee: int) -> pd.DataFrame:
-    return query(engine, f"""
+    """Agrégat par pays pour une année.
+
+    ⚠️ Grain : `fait_impact_pays_annee` est au grain (pays, année, produit).
+    La jointure sur dim_socio_economique (grain pays × année) duplique donc les
+    variables socio-éco une fois par produit → on utilise AVG (constante par
+    groupe), JAMAIS SUM. Cf. docs/audit.md §2.4.
+    """
+    return query(engine, """
         SELECT
             p.nom_pays,
             p.code_iso3 AS iso3,
@@ -211,9 +275,9 @@ def query_pays_annee(engine, annee: int) -> pd.DataFrame:
         JOIN dim_produits pr ON f.produit_id = pr.produit_id
         LEFT JOIN dim_socio_economique s
                ON f.pays_id = s.pays_id AND f.annee_id = s.annee_id
-        WHERE t.annee = {annee}
+        WHERE t.annee = :annee
         GROUP BY p.nom_pays, p.code_iso3, p.region
-    """)
+    """, {"annee": int(annee)})
 
 
 def enrich_pays_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -224,7 +288,7 @@ def enrich_pays_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def query_evol_pays(engine, iso3: str) -> pd.DataFrame:
-    return query(engine, f"""
+    return query(engine, """
         SELECT
             t.annee,
             SUM(f.co2_total_kg) AS co2_total,
@@ -234,45 +298,102 @@ def query_evol_pays(engine, iso3: str) -> pd.DataFrame:
         JOIN dim_temps t ON f.annee_id = t.annee_id
         LEFT JOIN dim_socio_economique s
                ON f.pays_id = s.pays_id AND f.annee_id = s.annee_id
-        WHERE p.code_iso3 = '{iso3}'
+        WHERE p.code_iso3 = :iso3
         GROUP BY t.annee
         ORDER BY t.annee
-    """)
+    """, {"iso3": iso3})
 
+
+# ── Baselines de comparaison ───────────────────────────────────
+# Règle commune aux trois requêtes ci-dessous (cf. docs/audit.md §2.4 et §2.5) :
+#   1. L'année de référence est le MAX des années présentes dans les FAITS,
+#      jamais le MAX de dim_temps (qui va jusqu'à 2023 même sans données).
+#   2. La population est agrégée depuis dim_socio_economique DIRECTEMENT
+#      (grain pays × année). La sommer après jointure sur la table de faits
+#      la dupliquerait une fois par produit (jusqu'à ×121).
+#   3. Le périmètre pays de la population est aligné sur celui du CO₂ via
+#      EXISTS, pour ne pas diviser un CO₂ partiel par une population totale.
 
 def query_baseline_pays(engine, iso3: str) -> pd.DataFrame:
-    return query(engine, f"""
-        SELECT SUM(f.co2_total_kg) AS co2_total, AVG(s.population) AS population
-        FROM fait_impact_pays_annee f
-        JOIN dim_pays  p ON f.pays_id  = p.pays_id
-        JOIN dim_temps t ON f.annee_id = t.annee_id
-        LEFT JOIN dim_socio_economique s
-               ON f.pays_id = s.pays_id AND f.annee_id = s.annee_id
-        WHERE p.code_iso3 = '{iso3}'
-          AND t.annee = (
-              SELECT MAX(t2.annee) FROM dim_temps t2
-              JOIN fait_impact_pays_annee f2 ON f2.annee_id = t2.annee_id
-              JOIN dim_pays p2 ON f2.pays_id = p2.pays_id
-              WHERE p2.code_iso3 = '{iso3}'
-          )
-    """)
+    return query(engine, """
+        WITH ref AS (
+            SELECT MAX(t.annee) AS annee
+            FROM fait_impact_pays_annee f
+            JOIN dim_temps t ON f.annee_id = t.annee_id
+            JOIN dim_pays  p ON f.pays_id  = p.pays_id
+            WHERE p.code_iso3 = :iso3
+        )
+        SELECT
+            (SELECT SUM(f.co2_total_kg)
+             FROM fait_impact_pays_annee f
+             JOIN dim_temps t ON f.annee_id = t.annee_id
+             JOIN dim_pays  p ON f.pays_id  = p.pays_id
+             WHERE p.code_iso3 = :iso3
+               AND t.annee = (SELECT annee FROM ref))          AS co2_total,
+            (SELECT SUM(s.population)
+             FROM dim_socio_economique s
+             JOIN dim_temps t ON s.annee_id = t.annee_id
+             JOIN dim_pays  p ON s.pays_id  = p.pays_id
+             WHERE p.code_iso3 = :iso3
+               AND t.annee = (SELECT annee FROM ref))          AS population,
+            (SELECT annee FROM ref)                            AS annee_ref
+    """, {"iso3": iso3})
 
 
 def query_baseline_region(engine, region: str) -> pd.DataFrame:
-    return query(engine, f"""
-        SELECT SUM(f.co2_total_kg) AS co2_total, SUM(s.population) AS population
-        FROM fait_impact_pays_annee f
-        JOIN dim_pays  p ON f.pays_id  = p.pays_id
-        JOIN dim_temps t ON f.annee_id = t.annee_id
-        LEFT JOIN dim_socio_economique s
-               ON f.pays_id = s.pays_id AND f.annee_id = s.annee_id
-        WHERE p.region = '{region}'
-          AND t.annee = (SELECT MAX(annee) FROM dim_temps)
+    return query(engine, """
+        WITH ref AS (
+            SELECT MAX(t.annee) AS annee
+            FROM fait_impact_pays_annee f
+            JOIN dim_temps t ON f.annee_id = t.annee_id
+            JOIN dim_pays  p ON f.pays_id  = p.pays_id
+            WHERE p.region = :region
+        )
+        SELECT
+            (SELECT SUM(f.co2_total_kg)
+             FROM fait_impact_pays_annee f
+             JOIN dim_temps t ON f.annee_id = t.annee_id
+             JOIN dim_pays  p ON f.pays_id  = p.pays_id
+             WHERE p.region = :region
+               AND t.annee = (SELECT annee FROM ref))          AS co2_total,
+            (SELECT SUM(s.population)
+             FROM dim_socio_economique s
+             JOIN dim_temps t ON s.annee_id = t.annee_id
+             JOIN dim_pays  p ON s.pays_id  = p.pays_id
+             WHERE p.region = :region
+               AND t.annee = (SELECT annee FROM ref)
+               AND EXISTS (SELECT 1 FROM fait_impact_pays_annee f2
+                           WHERE f2.pays_id  = s.pays_id
+                             AND f2.annee_id = s.annee_id))    AS population,
+            (SELECT annee FROM ref)                            AS annee_ref
+    """, {"region": region})
+
+
+def query_baseline_monde(engine) -> pd.DataFrame:
+    return query(engine, """
+        WITH ref AS (
+            SELECT MAX(t.annee) AS annee
+            FROM fait_impact_pays_annee f
+            JOIN dim_temps t ON f.annee_id = t.annee_id
+        )
+        SELECT
+            (SELECT SUM(f.co2_total_kg)
+             FROM fait_impact_pays_annee f
+             JOIN dim_temps t ON f.annee_id = t.annee_id
+             WHERE t.annee = (SELECT annee FROM ref))          AS co2_total,
+            (SELECT SUM(s.population)
+             FROM dim_socio_economique s
+             JOIN dim_temps t ON s.annee_id = t.annee_id
+             WHERE t.annee = (SELECT annee FROM ref)
+               AND EXISTS (SELECT 1 FROM fait_impact_pays_annee f2
+                           WHERE f2.pays_id  = s.pays_id
+                             AND f2.annee_id = s.annee_id))    AS population,
+            (SELECT annee FROM ref)                            AS annee_ref
     """)
 
 
 def query_production_par_categorie(engine, iso3: str, annee: int) -> pd.DataFrame:
-    return query(engine, f"""
+    return query(engine, """
         SELECT
             pr.categorie,
             SUM(f.quantite_1000t) AS quantite_1000t
@@ -280,33 +401,71 @@ def query_production_par_categorie(engine, iso3: str, annee: int) -> pd.DataFram
         JOIN dim_pays     p  ON f.pays_id    = p.pays_id
         JOIN dim_temps    t  ON f.annee_id   = t.annee_id
         JOIN dim_produits pr ON f.produit_id = pr.produit_id
-        WHERE p.code_iso3 = '{iso3}' AND t.annee = {annee}
+        WHERE p.code_iso3 = :iso3 AND t.annee = :annee
         GROUP BY pr.categorie
-    """)
+    """, {"iso3": iso3, "annee": int(annee)})
 
 
-def query_baseline_monde(engine) -> pd.DataFrame:
-    return query(engine, """
-        SELECT SUM(f.co2_total_kg) AS co2_total, SUM(s.population) AS population
+@st.cache_data(ttl=3600)
+def query_categories(_engine) -> list:
+    """Catégories réellement présentes en base, triées par empreinte décroissante."""
+    df = query(_engine, """
+        SELECT pr.categorie, SUM(f.co2_total_kg) AS co2
         FROM fait_impact_pays_annee f
-        JOIN dim_temps t ON f.annee_id = t.annee_id
-        LEFT JOIN dim_socio_economique s
-               ON f.pays_id = s.pays_id AND f.annee_id = s.annee_id
-        WHERE t.annee = (SELECT MAX(annee) FROM dim_temps)
+        JOIN dim_produits pr ON f.produit_id = pr.produit_id
+        WHERE f.co2_total_kg IS NOT NULL
+        GROUP BY pr.categorie
+        ORDER BY co2 DESC NULLS LAST
     """)
+    return df["categorie"].tolist()
+
+
+@st.cache_data(ttl=3600)
+def query_plage_quantite(_engine) -> tuple:
+    """Plage de `quantite_1000t` réellement vue à l'entraînement (grain produit).
+
+    Sert à borner le simulateur : un RandomForest n'extrapole pas au-delà de sa
+    plage d'entraînement, il renvoie une constante. Cf. docs/audit.md §3.2.
+    """
+    df = query(_engine, """
+        SELECT MIN(quantite_1000t) AS qmin, MAX(quantite_1000t) AS qmax
+        FROM fait_impact_pays_annee
+        WHERE quantite_1000t > 0 AND co2_total_kg IS NOT NULL
+    """)
+    if df.empty or pd.isna(df["qmax"].iloc[0]):
+        return (0.0, float("inf"))
+    return (float(df["qmin"].iloc[0]), float(df["qmax"].iloc[0]))
 
 
 # ──────────────────────────────────────────────────────────────
 # Clustering helper
 # ──────────────────────────────────────────────────────────────
-def apply_clustering(df: pd.DataFrame, model) -> pd.DataFrame:
+def apply_clustering(df: pd.DataFrame, bundle) -> pd.DataFrame:
+    """Assigne chaque pays à son cluster avec le scaler D'ENTRAÎNEMENT.
+
+    ⚠️ Ne JAMAIS appeler `fit` / `fit_transform` ici : les centroïdes du KMeans
+    vivent dans l'espace normalisé par le scaler ajusté à l'entraînement, sur
+    l'ensemble des paires pays × année. Réajuster un scaler sur le sous-ensemble
+    affiché déplace l'espace et rend les clusters incohérents d'une année à
+    l'autre. Cf. docs/audit.md §2.2.
+    """
     df = df.dropna(subset=CLUSTER_FEATURES).copy()
-    if len(df) < 5:
+    if bundle is None or bundle.get("kmeans") is None or len(df) < 5:
         return df
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(df[CLUSTER_FEATURES])
-    df["cluster"] = model.predict(X_scaled)
-    df["cluster_label"] = df["cluster"].map(CLUSTER_LABELS)
+
+    scaler = bundle.get("scaler")
+    if scaler is None:
+        # Modèle au format hérité : pas de scaler → refus explicite plutôt
+        # qu'un résultat faux silencieux.
+        return df
+
+    X_scaled = scaler.transform(df[CLUSTER_FEATURES])
+    labels = bundle.get("labels") or CLUSTER_LABELS_FALLBACK
+    # joblib peut restituer les clés en str selon le format de sérialisation.
+    labels = {int(k): v for k, v in labels.items()}
+
+    df["cluster"] = bundle["kmeans"].predict(X_scaled)
+    df["cluster_label"] = df["cluster"].map(labels).fillna("Non classé")
     df["cluster_display"] = df["cluster"].astype(str) + " — " + df["cluster_label"]
     return df
 
@@ -319,7 +478,12 @@ with st.sidebar:
     st.markdown("---")
     page = st.radio(
         "Navigation",
-        ["🗺️ Explorer les pays", "🍽️ Simulateur Menu", "📈 Prédiction Scénarios"],
+        [
+            "🗺️ Explorer les pays",
+            "🍽️ Simulateur Menu",
+            "📈 Prédiction Scénarios",
+            "📐 Méthodologie & limites",
+        ],
         label_visibility="collapsed",
     )
     st.markdown("---")
@@ -334,6 +498,18 @@ if not connected:
     st.warning(
         "Base de données non disponible. "
         "Démarrez PostgreSQL avec `docker compose -f docker/docker-compose.yml up -d`."
+    )
+
+if model_impact is None:
+    st.warning(
+        "Modèle de régression indisponible — la page « Prédiction Scénarios » est "
+        "désactivée. Régénérez-le avec `python scripts/train_model.py`."
+    )
+if model_clustering is None or model_clustering.get("scaler") is None:
+    st.info(
+        "Modèle de clustering absent ou au format hérité (sans scaler) — "
+        "l'affichage par clusters est désactivé. "
+        "Régénérez-le avec `python scripts/train_model.py`."
     )
 
 
@@ -353,7 +529,8 @@ if page == "🗺️ Explorer les pays":
     annee_sel = col_f1.selectbox("Année", annees, index=len(annees) - 1)
     region_sel = col_f2.selectbox("Région", ["Toutes"] + REGIONS)
     metric_sel = col_f3.selectbox("Métrique", list(METRIC_OPTIONS.keys()))
-    show_clusters = col_f4.toggle("Clusters", value=False)
+    clusters_ok = model_clustering is not None and model_clustering.get("scaler") is not None
+    show_clusters = col_f4.toggle("Clusters", value=False, disabled=not clusters_ok)
     metric_col = METRIC_OPTIONS[metric_sel]
 
     # ── Données ────────────────────────────────────────────────
@@ -363,7 +540,9 @@ if page == "🗺️ Explorer les pays":
         if region_sel != "Toutes"
         else pays_agg.copy()
     )
-    pays_clustered = apply_clustering(pays_agg, model_clustering)
+    # Le clustering suit le filtre région (le scaler étant celui de
+    # l'entraînement, restreindre l'affichage ne change pas les assignations).
+    pays_clustered = apply_clustering(pays_display, model_clustering)
 
     # ── Sélection pays ─────────────────────────────────────────
     if "selected_iso3" not in st.session_state:
@@ -388,7 +567,7 @@ if page == "🗺️ Explorer les pays":
     )
 
     # ── Carte ──────────────────────────────────────────────────
-    if show_clusters and len(pays_clustered) > 0:
+    if show_clusters and "cluster_display" in pays_clustered.columns and len(pays_clustered) > 0:
         fig_map = px.choropleth(
             pays_clustered,
             locations="iso3",
@@ -401,7 +580,13 @@ if page == "🗺️ Explorer les pays":
                 "pct_animal":        ":.1f",
                 "cluster_display":   False,
             },
-            color_discrete_sequence=list(CLUSTER_COLORS.values()),
+            # Couleur pilotée par le LIBELLÉ : un même profil garde sa couleur
+            # même si son indice change au réentraînement.
+            color_discrete_map={
+                f"{cid} — {lab}": CLUSTER_COLORS.get(lab, COULEUR_DEFAUT)
+                for cid, lab in pays_clustered[["cluster", "cluster_label"]]
+                .drop_duplicates().itertuples(index=False)
+            },
             title=f"Profils pays — KMeans k=5 ({annee_sel})",
             labels={"cluster_display": "Cluster"},
         )
@@ -464,12 +649,7 @@ if page == "🗺️ Explorer les pays":
 
             # KPIs
             k1, k2, k3, k4, k5 = st.columns(5)
-            co2_fmt = (
-                f"{row['co2_total']/1e9:.2f} Gt"
-                if row["co2_total"] > 1e9
-                else f"{row['co2_total']/1e6:.1f} Mt"
-            )
-            k1.metric("CO₂ total", co2_fmt)
+            k1.metric("CO₂ total", fmt_co2(row["co2_total"]))
             k2.metric(
                 "CO₂ / hab.",
                 f"{row['co2_per_capita']:.0f} kg" if pd.notna(row["co2_per_capita"]) else "N/A",
@@ -482,15 +662,20 @@ if page == "🗺️ Explorer les pays":
                 "Urbanisation",
                 f"{row['taux_urbanisation']:.1f}%" if pd.notna(row["taux_urbanisation"]) else "N/A",
             )
-            k5.metric("Part animale", f"{row['pct_animal']:.1f}%")
+            k5.metric(
+                "Part animale",
+                f"{row['pct_animal']:.1f}%" if pd.notna(row["pct_animal"]) else "N/A",
+            )
 
             # Cluster
-            if iso3 in pays_clustered["iso3"].values:
+            if "cluster" in pays_clustered.columns and iso3 in pays_clustered["iso3"].values:
                 clust_row = pays_clustered[pays_clustered["iso3"] == iso3].iloc[0]
                 c_id = int(clust_row["cluster"])
+                c_label = clust_row["cluster_label"]
                 st.markdown(
-                    f"<span style='color:{CLUSTER_COLORS[c_id]}'>●</span> "
-                    f"**Cluster {c_id} — {CLUSTER_LABELS[c_id]}** : {CLUSTER_DESCRIPTIONS[c_id]}",
+                    f"<span style='color:{CLUSTER_COLORS.get(c_label, COULEUR_DEFAUT)}'>●</span> "
+                    f"**Cluster {c_id} — {c_label}** : "
+                    f"{CLUSTER_DESCRIPTIONS.get(c_label, 'Profil sans description.')}",
                     unsafe_allow_html=True,
                 )
 
@@ -531,7 +716,7 @@ if page == "🗺️ Explorer les pays":
                 fig_box = make_subplots(rows=2, cols=2, subplot_titles=list(dist_vars.keys()))
                 positions = [(1, 1), (1, 2), (2, 1), (2, 2)]
                 first_legend = True
-                for (label, (col_var, unit)), (r, c) in zip(dist_vars.items(), positions):
+                for (label, (col_var, _unit)), (r, c) in zip(dist_vars.items(), positions, strict=False):
                     vals = pays_agg[col_var].dropna()
                     country_val = row[col_var] if pd.notna(row[col_var]) else None
                     fig_box.add_trace(go.Box(
@@ -594,8 +779,14 @@ elif page == "🍽️ Simulateur Menu":
         if df_ref is not None and not df_ref.empty:
             co2_ref_total = df_ref["co2_total"].iloc[0]
             pop_ref = df_ref["population"].iloc[0]
-            if pop_ref and pop_ref > 0:
+            baseline_annee = df_ref["annee_ref"].iloc[0] if "annee_ref" in df_ref else None
+            if pd.notna(co2_ref_total) and pd.notna(pop_ref) and pop_ref > 0:
                 baseline_co2_daily = co2_ref_total / pop_ref / 365
+            else:
+                st.warning(
+                    f"Pas de données d'empreinte exploitables pour « {ref_label} » — "
+                    "comparaison indisponible."
+                )
     else:
         st.info("Base de données non disponible — comparaison pays/région désactivée.")
 
@@ -692,16 +883,31 @@ elif page == "🍽️ Simulateur Menu":
             )
             if total_co2_daily > 0:
                 pct_animal = co2_animal_daily / total_co2_daily * 100
-                st.progress(int(pct_animal), text=f"Part animale : {pct_animal:.0f}% du CO₂ total")
+                # st.progress exige un int dans [0, 100] : NaN ou dépassement lèvent.
+                pct_animal_safe = int(np.clip(np.nan_to_num(pct_animal), 0, 100))
+                st.progress(
+                    pct_animal_safe,
+                    text=f"Part animale : {pct_animal:.0f}% du CO₂ total",
+                )
 
             # Comparaison vs pays/région de référence
             if baseline_co2_daily is not None and baseline_co2_daily > 0:
                 pct_of_ref = total_co2_daily / baseline_co2_daily * 100
                 st.markdown("---")
+                annee_txt = f" — année {int(baseline_annee)}" if pd.notna(baseline_annee) else ""
                 st.markdown(
                     f"**Comparaison :** votre alimentation représente **{pct_of_ref:.0f}%** "
-                    f"de la consommation CO₂ journalière moyenne par habitant — *{ref_label}*  \n"
-                    f"*(baseline : {baseline_co2_daily:.3f} kg CO₂/pers./jour)*"
+                    f"de l'empreinte alimentaire journalière moyenne par habitant — "
+                    f"*{ref_label}*{annee_txt}  \n"
+                    f"*(référence : {baseline_co2_daily:.3f} kg CO₂/pers./jour)*"
+                )
+                st.caption(
+                    "⚠️ **Lecture prudente.** Votre assiette est mesurée en *consommation "
+                    "individuelle* ; la référence est calculée sur la *production "
+                    "alimentaire nationale* rapportée à la population — elle inclut donc "
+                    "l'alimentation animale, les exportations et les pertes. Les deux "
+                    "grandeurs ne sont pas strictement équivalentes : ce ratio est un "
+                    "ordre de grandeur, pas une mesure. Cf. onglet Méthodologie."
                 )
 
             # Delta vs menu de référence sauvegardé
@@ -790,6 +996,14 @@ elif page == "📈 Prédiction Scénarios":
     if not connected:
         st.error("Cette page nécessite la connexion à la base de données PostgreSQL.")
         st.stop()
+    if model_impact is None:
+        st.error(
+            "Modèle de régression introuvable (`models/model_impact.pkl`). "
+            "Générez-le avec `python scripts/train_model.py`."
+        )
+        st.stop()
+
+    q_min_train, q_max_train = query_plage_quantite(engine)
 
     # ── Sélection pays / année / catégorie ─────────────────────
     col_s1, col_s2 = st.columns([1, 1])
@@ -807,17 +1021,16 @@ elif page == "📈 Prédiction Scénarios":
         annees_sc = sorted(annees_df["annee"].tolist())
         annee_sc = st.selectbox("Année de référence", annees_sc, index=len(annees_sc) - 1, key="sc_annee")
 
-        cats = [
-            "Meat", "Cereals & Grains", "Dairy", "Vegetables", "Fruits",
-            "Fish & Seafood", "Roots & Tubers", "Pulses", "Eggs",
-            "Sugar & Sweeteners", "Vegetable Oils",
-        ]
+        # Les catégories sont lues en base : elles doivent correspondre à celles
+        # vues à l'entraînement, et une liste codée en dur diverge silencieusement.
+        cats = query_categories(engine)
         categorie = st.selectbox("Catégorie alimentaire", cats)
         variation = st.slider("Variation de production (%)", -80, 200, 0, step=5)
 
     # ── Chargement données pays ─────────────────────────────────
     pays_row = None
     quantite_base = None
+    prod_df = pd.DataFrame()          # initialisé : référencé plus bas hors de ce bloc
     if iso3_sc:
         pays_agg_sc = enrich_pays_df(query_pays_annee(engine, annee_sc))
         match = pays_agg_sc[pays_agg_sc["iso3"] == iso3_sc]
@@ -867,17 +1080,29 @@ elif page == "📈 Prédiction Scénarios":
             delta_kg     = co2_modif_kg - co2_base_kg
             delta_pct    = (delta_kg / co2_base_kg * 100) if co2_base_kg > 0 else 0
 
+            # Avertissement d'extrapolation : un RandomForest ne sait pas
+            # extrapoler, il sature sur la feuille la plus proche.
+            if max(quantite_base, qty_modif) > q_max_train:
+                st.warning(
+                    f"⚠️ **Extrapolation.** La quantité simulée "
+                    f"({max(quantite_base, qty_modif):,.0f} kt) dépasse le maximum vu à "
+                    f"l'entraînement ({q_max_train:,.0f} kt). Le modèle est entraîné au "
+                    f"grain **produit** ; les quantités agrégées par **catégorie** sortent "
+                    f"de son domaine de validité et la prédiction sature. "
+                    f"À lire comme une tendance, pas comme une valeur."
+                )
+
             m1, m2, m3 = st.columns(3)
-            m1.metric("CO₂ actuel",       f"{co2_base_kg/1e6:.2f} Mt")
-            m2.metric("CO₂ scénario",     f"{co2_modif_kg/1e6:.2f} Mt", delta=f"{delta_pct:+.1f}%")
-            m3.metric("Variation absolue", f"{delta_kg/1e6:+.2f} Mt")
+            m1.metric("CO₂ actuel",       fmt_co2(co2_base_kg))
+            m2.metric("CO₂ scénario",     fmt_co2(co2_modif_kg), delta=f"{delta_pct:+.1f}%")
+            m3.metric("Variation absolue", ("+" if delta_kg >= 0 else "−") + fmt_co2(abs(delta_kg)))
 
             fig_comp = go.Figure()
             fig_comp.add_bar(
                 x=["Actuel", "Scénario"],
-                y=[co2_base_kg / 1e6, co2_modif_kg / 1e6],
+                y=[kg_to_mt(co2_base_kg), kg_to_mt(co2_modif_kg)],
                 marker_color=["#3498db", "#e74c3c" if delta_kg > 0 else "#2ecc71"],
-                text=[f"{co2_base_kg/1e6:.2f} Mt", f"{co2_modif_kg/1e6:.2f} Mt"],
+                text=[fmt_co2(co2_base_kg), fmt_co2(co2_modif_kg)],
                 textposition="outside",
             )
             fig_comp.update_layout(
@@ -891,7 +1116,7 @@ elif page == "📈 Prédiction Scénarios":
             st.subheader("Sensibilité CO₂ selon la variation de production")
             variations = list(range(-80, 201, 10))
             co2_vals = [
-                np.expm1(model_impact.predict(make_input(quantite_base * (1 + v / 100)))[0]) / 1e6
+                kg_to_mt(np.expm1(model_impact.predict(make_input(quantite_base * (1 + v / 100)))[0]))
                 for v in variations
             ]
             df_sens = pd.DataFrame({"Variation (%)": variations, "CO₂ (Mt)": co2_vals})
@@ -921,7 +1146,7 @@ elif page == "📈 Prédiction Scénarios":
             }])
             co2_by_cat.append({
                 "Catégorie":     cat_row["categorie"],
-                "CO₂ (Mt)":     np.expm1(model_impact.predict(x)[0]) / 1e6,
+                "CO₂ (Mt)":      kg_to_mt(np.expm1(model_impact.predict(x)[0])),
                 "Production (kt)": cat_row["quantite_1000t"],
             })
 
@@ -933,3 +1158,156 @@ elif page == "📈 Prédiction Scénarios":
         )
         fig_cat.update_layout(showlegend=False, height=400)
         st.plotly_chart(fig_cat, use_container_width=True)
+
+
+# ══════════════════════════════════════════════════════════════
+# PAGE 4 — Méthodologie & limites
+# ══════════════════════════════════════════════════════════════
+elif page == "📐 Méthodologie & limites":
+    st.title("📐 Méthodologie & limites")
+    st.markdown(
+        "Cette page documente **comment les chiffres sont produits** et **ce "
+        "qu'ils ne disent pas**. Elle fait partie du livrable : une mesure sans "
+        "son domaine de validité n'est pas un résultat."
+    )
+
+    tab_data, tab_calcul, tab_ml, tab_limites = st.tabs(
+        ["Données", "Calcul de l'empreinte", "Modèles", "Limites connues"]
+    )
+
+    with tab_data:
+        st.subheader("Sources")
+        st.dataframe(
+            pd.DataFrame([
+                {"Source": "FAOSTAT", "Contenu": "Bilans alimentaires (Food + Feed)",
+                 "Période": "1961–2023", "Licence": "CC BY-NC-SA 3.0 IGO"},
+                {"Source": "Our World in Data — Poore & Nemecek (2018)",
+                 "Contenu": "Facteurs CO₂, eau, sol par kg de produit",
+                 "Période": "Statique", "Licence": "CC BY 4.0"},
+                {"Source": "World Bank Open Data",
+                 "Contenu": "PIB/hab., urbanisation, population, surface agricole",
+                 "Période": "1961–2023", "Licence": "CC BY 4.0"},
+                {"Source": "OWID — Meat supply per person",
+                 "Contenu": "Consommation de viande par habitant",
+                 "Période": "1961–2020", "Licence": "CC BY 4.0"},
+            ]),
+            use_container_width=True, hide_index=True,
+        )
+        st.subheader("Architecture")
+        st.markdown(
+            "Data Lake (schéma `raw`, 5 tables, données brutes non modifiées) → "
+            "ETL Python → Data Warehouse en étoile (schéma `public`, 4 dimensions "
+            "+ 3 tables de faits). Le pipeline est rejouable : "
+            "`python scripts/etl_pipeline.py`."
+        )
+        st.info(
+            "**Aucune donnée personnelle n'est traitée.** Toutes les données sont "
+            "agrégées au niveau pays × année. Le simulateur s'exécute côté "
+            "navigateur et n'enregistre rien. Cf. `docs/rgpd.md`."
+        )
+
+    with tab_calcul:
+        st.subheader("Chaîne de calcul")
+        st.code(
+            "quantite_kg   = quantite_1000t × 1e6\n"
+            "co2_total_kg  = quantite_kg × facteur_CO2(produit)   [kg CO₂-eq/kg]\n"
+            "co2_per_capita = co2_total_kg / population",
+            language="text",
+        )
+        st.markdown(
+            "Les facteurs proviennent de **Poore & Nemecek (2018)**, méta-analyse "
+            "de 38 700 exploitations dans 119 pays. Ils couvrent le cycle complet : "
+            "changement d'usage des sols, exploitation, alimentation animale, "
+            "transformation, transport, emballage, distribution."
+        )
+        st.warning(
+            "**Périmètre : production, pas consommation.** Les quantités FAO "
+            "mesurent ce qu'un pays *produit et met à disposition*, pas ce que ses "
+            "habitants mangent. Les exportations, l'alimentation animale et les "
+            "pertes sont incluses. Un pays exportateur agricole apparaît donc plus "
+            "émetteur qu'il ne l'est du point de vue de ses habitants."
+        )
+        st.markdown(
+            "**Couverture des facteurs.** Seuls les produits FAO appariés au jeu "
+            "Food_Production disposent d'un facteur (appariement flou sur le nom). "
+            "Les autres sortent du calcul : l'empreinte affichée est donc une "
+            "**borne basse**."
+        )
+
+    with tab_ml:
+        st.subheader("Trois modèles, trois statuts")
+        st.markdown(
+            """
+| Modèle | Tâche | Statut |
+|---|---|---|
+| **A — Calculateur** | `co2_total_kg` ~ quantité + catégorie + socio-éco | ⚠️ Largement déterministe |
+| **B — Prédictif** | `co2_per_capita` ~ socio-économique **seul** | ✅ Vraie prédiction |
+| **C — Clustering** | Profils de pays (KMeans, k=5) | ✅ Non supervisé |
+"""
+        )
+        st.error(
+            "**Le modèle A ne prédit pas, il reconstitue.** Sa cible est construite "
+            "par `co2_total_kg = quantité × facteur(produit)`, et la quantité lui est "
+            "donnée en entrée. Il réapprend donc surtout une multiplication que nous "
+            "avons nous-mêmes effectuée — `catégorie` servant d'approximation du "
+            "facteur. Son R² élevé mesure une reconstitution arithmétique, pas un "
+            "pouvoir prédictif. Il est conservé comme **calculateur** de scénarios, "
+            "ce qu'il fait correctement."
+        )
+        st.success(
+            "**Le modèle B est la vraie démonstration.** Il prédit l'empreinte par "
+            "habitant à partir des seules variables socio-économiques — PIB, "
+            "urbanisation, population, surface agricole, région — dont aucune "
+            "n'entre dans la construction de la cible. Son R² est plus bas, et "
+            "c'est le résultat honnête."
+        )
+        st.subheader("Protocole d'évaluation")
+        st.markdown(
+            "Chaque régression est évaluée **deux fois** : split aléatoire "
+            "(optimiste) et split **groupé par pays** (aucun pays des deux côtés). "
+            "L'écart entre les deux mesure la fuite d'information due à la structure "
+            "des données — deux années consécutives d'un même pays sont presque "
+            "identiques."
+        )
+        metrics_path = BASE_DIR / "docs" / "metrics.json"
+        if metrics_path.exists():
+            import json
+            with st.expander("📊 Métriques mesurées (docs/metrics.json)"):
+                st.json(json.loads(metrics_path.read_text(encoding="utf-8")))
+        else:
+            st.caption(
+                "Métriques non générées — lancer `python scripts/train_model.py`."
+            )
+
+    with tab_limites:
+        st.subheader("Ce que ce travail ne permet pas de conclure")
+        st.markdown(
+            """
+1. **Production ≠ consommation.** Voir l'onglet *Calcul*. Une comparaison
+   « votre assiette vs votre pays » est un ordre de grandeur, pas une mesure.
+
+2. **Facteurs d'émission moyens et statiques.** Un kg de bœuf reçoit le même
+   facteur au Brésil et en Irlande, alors que les écarts réels sont d'un
+   facteur 10 selon le système d'élevage. Les facteurs ne varient pas non plus
+   dans le temps, alors que la période couverte est de 60 ans.
+
+3. **Couverture partielle des produits.** Les produits FAO non appariés n'ont
+   pas de facteur et sortent du total.
+
+4. **Le modèle A n'extrapole pas.** Un RandomForest interrogé au-delà de sa
+   plage d'entraînement renvoie une constante. Les scénarios de forte variation
+   de production saturent : l'application le signale explicitement.
+
+5. **Corrélation, pas causalité.** Le lien entre urbanisation et consommation
+   de viande est robuste statistiquement, mais ces variables sont co-déterminées
+   par le développement économique. Rien ici n'établit un mécanisme causal.
+
+6. **Silhouette de 0,27 pour le clustering.** Les groupes sont réels mais
+   faiblement séparés — attendu sur des variables socio-économiques continues.
+   Les 5 profils sont des repères de lecture, pas des catégories étanches.
+"""
+        )
+        st.caption(
+            "Audit interne complet et plan de correction : `docs/audit.md` "
+            "(non versionné)."
+        )

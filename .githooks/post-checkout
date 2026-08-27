@@ -1,11 +1,11 @@
 #!/bin/bash
-# .github/workflows/post-checkout
+# .githooks/post-checkout — installer avec : git config core.hooksPath .githooks
 echo "Welcome to the Final Project Repository!"
 # Check if .env exists
 if [ ! -f "./.env" ]; then
-    if [ -f "./.github/workflows/.env.template" ]; then
+    if [ -f "./.github/.env.template" ]; then
         echo "Creating .env from .env.template..."
-        cp ./.github/workflows/.env.template ./.env
+        cp ./.github/.env.template ./.env
         echo "✅ .env file created."
         echo "⚠️  Remember to edit .env with your personal credentials!"
     else

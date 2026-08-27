@@ -1,0 +1,13 @@
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",   # longueur de ligne : gérée par le formateur
+    "B008",   # appels en valeur par défaut : idiome Streamlit
+]
+
+[lint.per-file-ignores]
+"scripts/_mappings.py" = ["E501"]   # tables de correspondance verbatim
+"tests/*" = ["B011"]

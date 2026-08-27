@@ -1,0 +1,16 @@
+# Configuration Streamlit — commitée (aucun secret ici).
+# Les credentials vivent dans .env en local, et dans les Secrets de la
+# plateforme en déploiement. Ne jamais committer .streamlit/secrets.toml.
+
+[server]
+headless = true
+maxUploadSize = 5
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+primaryColor = "#2ecc71"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f4f6f8"
+textColor = "#1f2937"

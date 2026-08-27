@@ -1,42 +1,26 @@
 # 📚 Documentation
 
-Documentation technique et supports de présentation.
+| Fichier | Contenu |
+|---|---|
+| `gestion_projet.md` | Objectifs, planning, budget, risques, suites |
+| `rgpd.md` | Conformité RGPD, licences des sources, sécurité |
+| `impact.md` | Valeur métier, utilisateurs cibles, valorisation |
+| `schema_db.dbml` | Schéma de l'entrepôt — visualisable sur [dbdiagram.io](https://dbdiagram.io/) |
+| `metrics.json` | Métriques des 3 modèles, générées par `scripts/train_model.py` |
+| `mlflow_runs.csv` | Export des runs MLFlow (`mlruns/` étant trop volumineux pour git) |
+| `exploration_summary.json` | Sortie de l'exploration initiale |
+| `audit.md` | Audit qualité interne — **non versionné**, local uniquement |
 
-## Fichiers
+## Sources & licences
 
-### `schema_db.dbml`
-Schéma de la base de données (format DBDiagram) :
-- Tables de fait et dimensions
-- Relations et clés étrangères
-- Types de données
-
-Visualiser sur : https://dbdiagram.io/
-
-### `presentation.pptx`
-Support PowerPoint pour le Demo Day :
-- Problématique et enjeux
-- Pipeline de données
-- Insights EDA
-- Résultats ML
-- Démo application
-
-### `rapport_technique.pdf` (optionnel)
-Documentation technique complète :
-- Choix architecturaux justifiés
-- Méthodologie ETL
-- Analyse statistique détaillée
-- Résultats et interprétations
-
-## Sources et références
-
-- FAO : https://www.fao.org/faostat/
-- Our World in Data : https://ourworldindata.org/
-- World Bank : https://data.worldbank.org/
-- Poore & Nemecek (2018) - Science
+| Source | Licence |
+|---|---|
+| FAOSTAT | CC BY-NC-SA 3.0 IGO — ⚠️ non commercial |
+| Our World in Data / Poore & Nemecek (2018) | CC BY 4.0 |
+| World Bank Open Data | CC BY 4.0 |
 
 ## Convention
 
-- Citer toutes les sources utilisées
-- Inclure les licences des données
-- Documenter les choix techniques
-- Ajouter des captures d'écran de l'application
+- Tout chiffre cité renvoie au notebook ou au script qui le produit.
+- Aucune valeur n'est écrite à la main : `metrics.json` fait foi.
+- Les limites méthodologiques sont documentées, pas dissimulées.

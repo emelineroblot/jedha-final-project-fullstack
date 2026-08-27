@@ -1,14 +1,9 @@
-# Core libs
-
-numpy
-pandas
-plotly
-
-# ML
-
-scikit-learn
-
-# Notebooks / env
-
-ipykernel
-jupyterlab
+# ============================================================
+# ⚠️ NE PAS ÉDITER — la source de vérité est ../requirements.txt
+#
+# Ce fichier ne subsiste que pour les scripts qui le référencent
+# historiquement. Il délègue au fichier racine pour éviter la
+# divergence qui rendait l'environnement documenté inutilisable
+# (streamlit, sqlalchemy, mlflow… étaient absents).
+# ============================================================
+-r ../requirements.txt
