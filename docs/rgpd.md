@@ -102,19 +102,36 @@ Bien qu'aucune donnée personnelle ne soit en jeu, les mesures de l'article 32
 
 | Mesure | Mise en œuvre |
 |---|---|
-| Secrets hors du code | `.env` exclu de git ; templates `.env.example` sans valeur |
+| Secrets hors du code | `.env` exclu de git ; seul `docker/.env.example` est versionné, sans aucune valeur réelle |
 | Secrets hors de l'application | `.streamlit/secrets.toml` exclu de git |
-| Moindre privilège en base | Utilisateur applicatif en lecture seule (à appliquer en production) |
-| Chiffrement en transit | `sslmode=require` sur la connexion PostgreSQL AWS |
-| Restriction réseau | ACL AWS à restreindre aux IP autorisées avant la mise en ligne |
-| Traçabilité | Historique git ; pipeline ETL rejouable et journalisé |
-| Hébergement UE | AWS, région `fr-par` (France) — pas de transfert hors UE |
+| Moindre privilège en base | ✅ **Appliqué** — l'application se connecte avec `food_app`, en **lecture seule** ; le compte maître est réservé à l'ETL et aux migrations |
+| Chiffrement en transit | ✅ `sslmode=require` sur toutes les connexions RDS, vérifié (`SHOW ssl` = `on`) |
+| Robustesse des secrets | Mots de passe applicatifs générés aléatoirement sur 28 à 32 caractères |
+| Chiffrement au repos | Chiffrement AWS activé sur le volume de l'instance |
+| Traçabilité | Historique git ; pipeline ETL rejouable, journalisé et auto-validé |
+| Hébergement UE | **AWS RDS, région `eu-north-1` (Stockholm, Suède)** — aucun transfert hors UE |
 
-⚠️ **Point de vigilance ouvert.** `config/.env.common` est versionné sur un dépôt
-public et expose l'identifiant de projet AWS ainsi que le nom d'hôte de la
-base. Ce ne sont pas des secrets (aucun mot de passe), mais l'endpoint est
-découvrable. **Action requise avant la soutenance : restreindre l'accès réseau
-par ACL AWS.**
+⚠️ **Point de vigilance assumé.** Le groupe de sécurité de l'instance autorise
+les connexions depuis `0.0.0.0/0`, afin que l'application hébergée sur Streamlit
+Community Cloud — dont les adresses IP ne sont pas fixes — puisse l'atteindre.
+
+La base est donc **joignable depuis Internet**. Ce choix est compensé par :
+
+- un compte applicatif strictement **en lecture seule**, dont l'incapacité à
+  écrire a été vérifiée par test ;
+- des mots de passe **aléatoires de 28 à 32 caractères** ;
+- **TLS imposé** côté serveur, toute connexion en clair étant refusée ;
+- des données **entièrement publiques** — une exfiltration ne révélerait rien
+  qui ne soit déjà librement téléchargeable auprès de la FAO ou de la Banque
+  mondiale.
+
+> **Action de clôture : supprimer l'instance RDS après la soutenance.** Une base
+> exposée et non surveillée est une dette de sécurité, même sans donnée
+> sensible. La procédure figure dans `docs/deploiement_aws.md` §7.
+
+Si l'exposition publique n'est pas nécessaire — démonstration en local plutôt
+que sur Streamlit Cloud — restreindre le groupe de sécurité à une seule adresse
+IP supprime entièrement ce risque.
 
 ---
 
@@ -145,6 +162,7 @@ activités de traitement (article 30) n'est pas requis.
 > rien : ni base, ni cookie, ni télémétrie.
 >
 > Les mesures de sécurité usuelles sont néanmoins appliquées — secrets hors du
-> code, chiffrement en transit, hébergement en France. La principale contrainte
-> juridique du projet n'est pas le RGPD mais la **clause non-commerciale de la
-> licence FAOSTAT**, qui encadrerait toute valorisation ultérieure.
+> code, compte applicatif en lecture seule, chiffrement en transit et au repos,
+> hébergement dans l'Union européenne. La principale contrainte juridique du
+> projet n'est pas le RGPD mais la **clause non-commerciale de la licence
+> FAOSTAT**, qui encadrerait toute valorisation ultérieure.

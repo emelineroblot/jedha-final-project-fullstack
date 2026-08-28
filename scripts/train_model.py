@@ -65,13 +65,16 @@ DOCS_DIR.mkdir(exist_ok=True)
 
 load_dotenv(BASE_DIR / ".env")
 
-DB_URL = (
-    f"postgresql://{os.getenv('POSTGRES_USER', 'food_user')}:"
-    f"{os.getenv('POSTGRES_PASSWORD', 'food_pass')}@"
-    f"{os.getenv('POSTGRES_HOST', 'localhost')}:"
-    f"{os.getenv('POSTGRES_PORT', '5432')}/"
-    f"{os.getenv('POSTGRES_DB', 'food_impact')}"
-)
+DB_URL = "postgresql+psycopg2://"
+CONNECT_ARGS = {
+    "host": os.getenv("POSTGRES_HOST", "localhost"),
+    "port": int(os.getenv("POSTGRES_PORT", "5432")),
+    "dbname": os.getenv("POSTGRES_DB", "food_impact"),
+    "user": os.getenv("POSTGRES_USER", "food_user"),
+    "password": os.getenv("POSTGRES_PASSWORD", "food_pass"),
+    "sslmode": os.getenv("POSTGRES_SSLMODE", "prefer"),
+    "connect_timeout": 30,
+}
 
 RANDOM_STATE = 42
 
@@ -108,7 +111,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("train")
 
-engine = create_engine(DB_URL, echo=False)
+engine = create_engine(DB_URL, connect_args=CONNECT_ARGS,
+                       pool_pre_ping=True, echo=False)
 METRICS: dict = {}
 
 

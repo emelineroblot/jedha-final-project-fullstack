@@ -3,13 +3,13 @@
 echo "Welcome to the Final Project Repository!"
 # Check if .env exists
 if [ ! -f "./.env" ]; then
-    if [ -f "./.github/.env.template" ]; then
-        echo "Creating .env from .env.template..."
-        cp ./.github/.env.template ./.env
+    if [ -f "./docker/.env.example" ]; then
+        echo "Creating .env from docker/.env.example..."
+        cp ./docker/.env.example ./.env
         echo "✅ .env file created."
         echo "⚠️  Remember to edit .env with your personal credentials!"
     else
-        echo "❌ .env.template not found. Please ask your team."
+        echo "❌ docker/.env.example not found. Voir docs/deploiement_aws.md."
     fi
 else
     echo "✅ .env already present."

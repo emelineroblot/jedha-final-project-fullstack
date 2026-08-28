@@ -28,7 +28,7 @@ un entrepôt unique de **973 227 lignes**, exposé par une application web.
 - [Modèles](#modèles)
 - [Limites connues](#limites-connues)
 - [Documentation](#documentation)
-- [Équipe](#équipe)
+- [Auteur](#auteur)
 
 ---
 
@@ -154,6 +154,7 @@ Schéma détaillé : [`docs/schema_db.dbml`](docs/schema_db.dbml) (visualisable 
 │   ├── rgpd.md                   # Conformité RGPD & licences
 │   ├── gestion_projet.md         # Objectifs, planning, budget
 │   ├── impact.md                 # Valeur métier & pitch
+│   ├── deploiement_aws.md        # Procédure AWS RDS
 │   ├── metrics.json              # Métriques mesurées
 │   └── mlflow_runs.csv           # Export du suivi d'expériences
 ├── models/                       # Artefacts entraînés (non versionnés)
@@ -169,7 +170,7 @@ Schéma détaillé : [`docs/schema_db.dbml`](docs/schema_db.dbml) (visualisable 
 │   ├── etl_pipeline.py           # ETL industrialisé, rejouable
 │   ├── train_model.py            # Entraînement des 3 modèles
 │   ├── _mappings.py              # Tables de correspondance FAO ↔ ISO3
-│   └── aws.py               # Configuration S3 + PostgreSQL AWS
+│   └── check_db.py               # Diagnostic de connexion (local ou RDS)
 └── tests/
     └── test_app_constants.py     # 25 tests de non-régression
 ```
@@ -248,10 +249,23 @@ ruff check app scripts tests
 mlflow ui                                       # → http://localhost:5000
 ```
 
-### Migration vers AWS
+### Déploiement sur AWS RDS
 
-Modifier les variables `POSTGRES_*` de `.env`. **Aucun changement de code** :
-la chaîne de connexion est entièrement dérivée de l'environnement.
+La base de production est une instance **AWS RDS PostgreSQL** (`db.t4g.micro`,
+région `eu-north-1`). Pour basculer, il suffit de commenter le bloc local de
+`.env` et de décommenter le bloc RDS : **aucun changement de code**, la
+connexion est entièrement dérivée de l'environnement.
+
+```bash
+python scripts/check_db.py            # diagnostic de la cible courante
+python scripts/check_db.py --master   # avec le compte maître
+```
+
+Procédure complète — création de l'instance, sécurité, migration `pg_dump` /
+`pg_restore`, maîtrise des coûts : **[`docs/deploiement_aws.md`](docs/deploiement_aws.md)**.
+
+L'application se connecte avec un utilisateur **en lecture seule** (`food_app`) ;
+le compte maître est réservé à l'ETL et aux migrations.
 
 ---
 
@@ -312,15 +326,15 @@ la chaîne de connexion est entièrement dérivée de l'environnement.
 | [`docs/rgpd.md`](docs/rgpd.md) | Conformité RGPD, licences, sécurité |
 | [`docs/impact.md`](docs/impact.md) | Valeur métier, utilisateurs cibles, valorisation |
 | [`docs/schema_db.dbml`](docs/schema_db.dbml) | Schéma de l'entrepôt |
+| [`docs/deploiement_aws.md`](docs/deploiement_aws.md) | Création de la base AWS RDS, migration, coûts |
 | [`docs/metrics.json`](docs/metrics.json) | Métriques mesurées, reproductibles |
 
 ---
 
-## Équipe
+## Auteur
 
-- **Emeline ROBLOT** — Data engineering & MLOps
-- **Emeline ROBLOT** — Analyse & modélisation
-- **Emeline ROBLOT** — Infrastructure & coordination
+**Emeline ROBLOT** — conception, data engineering, modélisation, application et
+déploiement. Projet mené individuellement de bout en bout.
 
 Encadrement : Sabrine BENDIMERAD, Angel GASPARD-FAUVEL
 

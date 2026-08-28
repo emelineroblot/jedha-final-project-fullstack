@@ -50,10 +50,6 @@ pycountry>=23.12              # codes ISO — requis par etl_pipeline.py
 rapidfuzz>=3.6                # matching FAO ↔ Food_Production (dim_produits)
 tqdm>=4.66
 
-# ── Stockage objet AWS (scripts/aws.py) ───────────
-boto3>=1.34
-botocore>=1.34
-
 # ── Qualité de code & tests ─────────────────────────────────
 pytest>=8.0
 ruff>=0.3

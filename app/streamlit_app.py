@@ -161,12 +161,27 @@ CATEGORIES_ANIMALES = ("Meat", "Dairy", "Eggs", "Fish & Seafood")
 # ──────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_engine():
-    host = os.getenv("POSTGRES_HOST", "localhost")
-    port = os.getenv("POSTGRES_PORT", "5432")
-    db   = os.getenv("POSTGRES_DB",   "food_impact")
-    user = os.getenv("POSTGRES_USER", "food_user")
-    pwd  = os.getenv("POSTGRES_PASSWORD", "food_pass")
-    return create_engine(f"postgresql://{user}:{pwd}@{host}:{port}/{db}", echo=False)
+    """Moteur SQLAlchemy dérivé de l'environnement — jamais de valeur en dur.
+
+    Le mot de passe passe par `connect_args` et non par l'URL : il n'a donc pas
+    à être encodé, et n'apparaît dans aucune trace d'erreur SQLAlchemy.
+    `sslmode` vaut `require` en production (RDS refuse le clair) et `prefer` en
+    local, où le conteneur Docker n'expose pas de certificat.
+    """
+    return create_engine(
+        "postgresql+psycopg2://",
+        connect_args={
+            "host":     os.getenv("POSTGRES_HOST", "localhost"),
+            "port":     int(os.getenv("POSTGRES_PORT", "5432")),
+            "dbname":   os.getenv("POSTGRES_DB", "food_impact"),
+            "user":     os.getenv("POSTGRES_USER", "food_user"),
+            "password": os.getenv("POSTGRES_PASSWORD", "food_pass"),
+            "sslmode":  os.getenv("POSTGRES_SSLMODE", "prefer"),
+            "connect_timeout": 15,
+        },
+        pool_pre_ping=True,   # une connexion coupée par RDS est reconnectée
+        echo=False,
+    )
 
 
 @st.cache_resource

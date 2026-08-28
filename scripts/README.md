@@ -8,11 +8,12 @@ foi** ; les notebooks documentent la démarche exploratoire.
 | `etl_pipeline.py` | Data Lake + entrepôt en étoile. Idempotent, validé, journalisé. |
 | `train_model.py` | Entraîne les 3 modèles, journalise dans MLFlow, exporte les métriques. |
 | `_mappings.py` | Tables de correspondance FAO ↔ ISO3, régions, catégorisation produits. Extraites verbatim du notebook ETL. |
-| `aws.py` | Configuration du stockage objet S3 et de PostgreSQL managé. |
+| `check_db.py` | Diagnostic de connexion : joignabilité, TLS, tables, droits. Local ou AWS RDS. |
 
 ## Usage
 
 ```bash
+python scripts/check_db.py                      # vérifier la cible avant tout
 python scripts/etl_pipeline.py                  # pipeline complet (~5 min)
 python scripts/etl_pipeline.py --steps facts    # faits uniquement
 python scripts/etl_pipeline.py --validate-only  # contrôles, aucune écriture
@@ -31,4 +32,5 @@ Les sources amont sont annuelles (FAOSTAT, World Bank). Rafraîchissement :
 4. `pytest -q`
 
 Le pipeline étant idempotent, ces étapes se rejouent sans risque de doublon.
-Cible d'automatisation : un job mensuel (AWS Serverless Job, ~2 €/mois).
+Cible d'automatisation : une règle **EventBridge** mensuelle déclenchant une
+fonction **Lambda** (ou une tâche **ECS**), pour un coût négligeable.

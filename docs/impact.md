@@ -117,7 +117,7 @@ le seul scénario immédiatement praticable, il correspond au besoin le mieux
 établi, et il construit la crédibilité qui rendrait les autres scénarios
 négociables.
 
-Coût d'exploitation : **≈ 49 €/mois** (cf. `docs/gestion_projet.md` §4.2). Un
+Coût d'exploitation : **≈ 52 €/mois** (cf. `docs/gestion_projet.md` §4.2). Un
 budget de mécénat ou une subvention de médiation scientifique suffit.
 
 ---

@@ -16,8 +16,8 @@ Idempotence
 Chaque étape recrée ou vide ses tables avant écriture : le script peut être
 relancé autant de fois que nécessaire sans dupliquer de lignes.
 
-Migration vers AWS : modifier `.env`, rien d'autre. La chaîne de connexion
-est entièrement dérivée des variables d'environnement.
+Migration vers AWS RDS : modifier `.env`, rien d'autre. La connexion est
+entièrement dérivée des variables d'environnement (cf. docs/deploiement_aws.md).
 """
 
 from __future__ import annotations
@@ -51,7 +51,20 @@ PG_PORT = os.getenv("POSTGRES_PORT", "5432")
 PG_DB = os.getenv("POSTGRES_DB", "food_impact")
 PG_USER = os.getenv("POSTGRES_USER", "food_user")
 PG_PASS = os.getenv("POSTGRES_PASSWORD", "food_pass")
-DB_URL = f"postgresql://{PG_USER}:{PG_PASS}@{PG_HOST}:{PG_PORT}/{PG_DB}"
+PG_SSLMODE = os.getenv("POSTGRES_SSLMODE", "prefer")
+
+# Le mot de passe transite par connect_args, pas par l'URL : pas d'encodage à
+# gérer, et il n'apparaît dans aucune trace d'erreur SQLAlchemy.
+CONNECT_ARGS = {
+    "host": PG_HOST,
+    "port": int(PG_PORT),
+    "dbname": PG_DB,
+    "user": PG_USER,
+    "password": PG_PASS,
+    "sslmode": PG_SSLMODE,
+    "connect_timeout": 30,
+}
+DB_URL = "postgresql+psycopg2://"
 
 SOURCES = {
     "raw_fao_historique": DATA_RAW / "FAO.csv",
@@ -83,7 +96,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("etl")
 
-engine = create_engine(DB_URL, echo=False)
+engine = create_engine(DB_URL, connect_args=CONNECT_ARGS,
+                       pool_pre_ping=True, echo=False)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -138,7 +152,8 @@ def check_connection() -> None:
             version = con.execute(text("SELECT version()")).scalar()
     except Exception as exc:  # noqa: BLE001
         log.error("Connexion PostgreSQL impossible : %s", exc)
-        log.error("→ docker compose -f docker/docker-compose.yml up -d")
+        log.error("→ base locale : docker compose -f docker/docker-compose.yml up -d")
+        log.error("→ base RDS    : python scripts/check_db.py")
         raise SystemExit(1) from exc
     log.info("PostgreSQL connecté — %s", version[:60])
     log.info("Cible : %s:%s/%s", PG_HOST, PG_PORT, PG_DB)
