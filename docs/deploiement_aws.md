@@ -122,6 +122,12 @@ l'application ne sert qu'un utilisateur à la fois en démonstration.
 | DB subnet group | default |
 | **Public access** | **Yes** |
 | VPC security group | **Create new** → nom : `food-impact-sg` |
+
+> ⚠️ **Vérifie ce champ après création.** Le formulaire retombe volontiers sur
+> *Choose existing* → `default`. Le groupe `food-impact-sg` est alors créé mais
+> **rattaché à rien**, et toute règle ajoutée dedans reste sans effet. C'est
+> exactement ce qui s'est produit ici. Le §2 explique comment retrouver le
+> groupe réellement attaché.
 | Availability Zone | No preference |
 | Database port | `5432` |
 
@@ -162,8 +168,34 @@ Profites-en pour faire l'étape 2.
 
 ## 2. Ouvrir le pare-feu (security group)
 
-Console → **EC2** → **Security Groups** → sélectionne `food-impact-sg` →
-onglet **Inbound rules** → **Edit inbound rules**.
+### D'abord : quel groupe est RÉELLEMENT attaché ?
+
+Ne pars pas du nom que tu as saisi à la création — vérifie.
+
+**RDS → Databases → `food-impact-db` → onglet Connectivity & security →
+section VPC security groups** : note l'identifiant `sg-…` affiché.
+
+En ligne de commande :
+
+```bash
+aws rds describe-db-instances --db-instance-identifier food-impact-db     --query 'DBInstances[0].VpcSecurityGroups'
+```
+
+> Sur cette instance, le groupe attaché s'est avéré être **`default`**
+> (`sg-0506bc3852162275c`) et non `food-impact-sg`. Une règle ajoutée au
+> mauvais groupe ne produit aucune erreur : elle est simplement ignorée, et le
+> symptôme est un `timeout expired` indiscernable d'un problème réseau.
+
+### Ensuite : ouvrir le port
+
+Console → **EC2** → **Security Groups** → sélectionne **le `sg-…` relevé
+ci-dessus** → onglet **Inbound rules** → **Edit inbound rules**.
+
+En ligne de commande :
+
+```bash
+aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX     --ip-permissions 'IpProtocol=tcp,FromPort=5432,ToPort=5432,IpRanges=[{CidrIp=0.0.0.0/0,Description="Streamlit Community Cloud"}]'
+```
 
 ### Règle 1 — ton poste (migration et développement)
 
@@ -417,30 +449,70 @@ Le calcul n'est plus facturé, le stockage reste.
 
 ---
 
-## 8. Déployer l'application sur Streamlit Cloud
+## 8. Déployer l'application sur Streamlit Community Cloud
 
-Uniquement si tu as retenu l'**option A** au §2 (security group ouvert).
+> Hugging Face Spaces a été écarté : depuis 2025, y héberger un Space **Docker
+> ou Gradio** sur `cpu-basic` exige un abonnement PRO, et le SDK `streamlit`
+> natif n'est plus proposé à la création. Seuls les Spaces *statiques* restent
+> gratuits — inutilisables ici, puisqu'il faut exécuter du Python côté serveur.
 
-1. <https://share.streamlit.io> → connexion avec ton compte GitHub
-2. **New app** → dépôt `emelineroblot/jedha-final-project-fullstack`,
-   branche `main`, fichier `app/streamlit_app.py`
-3. **Advanced settings** → **Secrets**, au format TOML :
+1. <https://share.streamlit.io> → connexion avec le compte GitHub
+2. **Create app** → *Deploy a public app from GitHub*
+   - Repository : `emelineroblot/jedha-final-project-fullstack`
+   - Branch : `main`
+   - Main file path : `app/streamlit_app.py`
+3. **Advanced settings → Python version : 3.12** ⚠️ **étape critique, voir ci-dessous**
+4. **Secrets** : coller le contenu de `.streamlit/secrets.toml`
+5. **Deploy** (2 à 3 min)
 
-```toml
-POSTGRES_HOST = "food-impact-db.cta2iqgqyibu.eu-north-1.rds.amazonaws.com"
-POSTGRES_PORT = "5432"
-POSTGRES_DB = "food_impact"
-POSTGRES_USER = "food_app"
-POSTGRES_PASSWORD = "<mot-de-passe-food_app>"
-POSTGRES_SSLMODE = "require"
+### ⚠️ Trois pièges rencontrés, dans l'ordre
+
+**1. Git LFS n'est pas supporté.** Streamlit Cloud clone le dépôt sans
+récupérer les objets LFS : les `.pkl` arrivent sous forme de **pointeurs de
+129 octets**, et l'application démarre en mode dégradé. Les modèles doivent être
+versionnés en **blobs git ordinaires** (26,7 Mo au total, très en deçà de la
+limite GitHub de 100 Mo par fichier).
+
+Vérification :
+```bash
+curl -sI https://raw.githubusercontent.com/<user>/<repo>/main/models/model_impact.pkl
+# quelques centaines d'octets => pointeur LFS, pas le modèle
 ```
 
-⚠️ **Les modèles ne sont pas versionnés** (`models/` est dans `.gitignore`).
-Trois options :
-- laisser l'application en **mode dégradé** — les pages Prédiction et Clusters
-  s'auto-désactivent proprement, c'est prévu ;
-- versionner les artefacts avec **Git LFS** (26,7 Mo au total, ça passe) ;
-- ajouter une étape de régénération au démarrage (lent, déconseillé).
+**2. La version de Python par défaut est 3.14.** Or `pandas`, `numpy` et
+`psycopg2-binary` n'ont pas encore de wheel pour cette version : pip tente de
+les **compiler depuis les sources**, `psycopg2` échoue faute de `pg_config`, et
+`pandas` part pour une compilation interminable. Le build ne se termine jamais.
+
+**→ Fixer Python à 3.12**, où les neuf dépendances ont toutes un wheel.
+
+Ne relâche pas les versions pour satisfaire 3.14 : `scikit-learn` doit rester
+**exactement** celle qui a sérialisé les modèles.
+
+**3. Le groupe de sécurité (§2).** Symptôme : l'application se lance, les
+secrets sont bien lus, mais chaque requête finit en `timeout expired`.
+
+### Diagnostic intégré
+
+L'application embarque un panneau **Diagnostic détaillé** qui affiche la cible
+visée, la provenance de la configuration et l'erreur exacte. Il discrimine
+immédiatement les trois causes :
+
+| Symptôme | Cause |
+|---|---|
+| `POSTGRES_HOST: localhost`, *source : valeurs par défaut* | Secrets non lus |
+| Endpoint correct + `timeout expired` | Groupe de sécurité |
+| Endpoint correct + `password authentication failed` | Identifiants |
+
+Le mot de passe n'est jamais affiché — seulement un booléen indiquant s'il est
+fourni.
+
+### Modèles et dépendances
+
+`requirements.txt` ne contient que les **9 paquets de l'application**.
+L'outillage de développement (MLFlow, XGBoost, JupyterLab, pytest, ruff) vit
+dans `requirements-dev.txt` : l'inclure au déploiement allongeait le build de
+plusieurs minutes pour des paquets jamais importés.
 
 ---
 
