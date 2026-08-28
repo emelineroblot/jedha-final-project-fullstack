@@ -159,9 +159,26 @@ CATEGORIES_ANIMALES = ("Meat", "Dairy", "Eggs", "Fish & Seafood")
 # ──────────────────────────────────────────────────────────────
 # DB / Modèles
 # ──────────────────────────────────────────────────────────────
+def conf(cle: str, defaut: str) -> str:
+    """Lit un paramètre : variable d'environnement, puis secrets Streamlit.
+
+    En local, les valeurs viennent du `.env`. Sur Streamlit Community Cloud
+    elles viennent des Secrets, normalement exposés aussi comme variables
+    d'environnement — le repli sur `st.secrets` évite de dépendre de ce
+    comportement.
+    """
+    valeur = os.getenv(cle)
+    if valeur:
+        return valeur
+    try:
+        return str(st.secrets[cle])
+    except Exception:  # noqa: BLE001 — pas de secrets.toml, cas nominal en local
+        return defaut
+
+
 @st.cache_resource
 def get_engine():
-    """Moteur SQLAlchemy dérivé de l'environnement — jamais de valeur en dur.
+    """Moteur SQLAlchemy dérivé de la configuration — jamais de valeur en dur.
 
     Le mot de passe passe par `connect_args` et non par l'URL : il n'a donc pas
     à être encodé, et n'apparaît dans aucune trace d'erreur SQLAlchemy.
@@ -171,12 +188,12 @@ def get_engine():
     return create_engine(
         "postgresql+psycopg2://",
         connect_args={
-            "host":     os.getenv("POSTGRES_HOST", "localhost"),
-            "port":     int(os.getenv("POSTGRES_PORT", "5432")),
-            "dbname":   os.getenv("POSTGRES_DB", "food_impact"),
-            "user":     os.getenv("POSTGRES_USER", "food_user"),
-            "password": os.getenv("POSTGRES_PASSWORD", "food_pass"),
-            "sslmode":  os.getenv("POSTGRES_SSLMODE", "prefer"),
+            "host":     conf("POSTGRES_HOST", "localhost"),
+            "port":     int(conf("POSTGRES_PORT", "5432")),
+            "dbname":   conf("POSTGRES_DB", "food_impact"),
+            "user":     conf("POSTGRES_USER", "food_user"),
+            "password": conf("POSTGRES_PASSWORD", "food_pass"),
+            "sslmode":  conf("POSTGRES_SSLMODE", "prefer"),
             "connect_timeout": 15,
         },
         pool_pre_ping=True,   # une connexion coupée par RDS est reconnectée
