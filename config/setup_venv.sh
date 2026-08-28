@@ -28,8 +28,8 @@ if [ -f "config/requirements.lock.txt" ]; then
     echo "→ Installation depuis config/requirements.lock.txt"
     "$PYTHON" -m pip install -r config/requirements.lock.txt
 else
-    echo "→ Installation depuis requirements.txt"
-    "$PYTHON" -m pip install -r requirements.txt
+    echo "→ Installation depuis requirements-dev.txt"
+    "$PYTHON" -m pip install -r requirements-dev.txt
 fi
 
 # Le kernel porte le nom du PROJET, pas celui du dossier config/.

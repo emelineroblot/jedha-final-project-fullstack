@@ -13,6 +13,7 @@ foi** ; les notebooks documentent la démarche exploratoire.
 ## Usage
 
 ```bash
+pip install -r requirements-dev.txt             # ETL et entrainement
 python scripts/check_db.py                      # vérifier la cible avant tout
 python scripts/etl_pipeline.py                  # pipeline complet (~5 min)
 python scripts/etl_pipeline.py --steps facts    # faits uniquement

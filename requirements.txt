@@ -1,55 +1,25 @@
 # ============================================================
-# Dépendances — Impact Environnemental Alimentaire (Jedha Bloc 6)
+# Dépendances de l'APPLICATION — c'est ce fichier que lit
+# Streamlit Community Cloud au déploiement.
 #
-# SOURCE DE VÉRITÉ UNIQUE. `config/requirements.txt` renvoie ici.
-# Installation :  pip install -r requirements.txt
+# Volontairement minimal : y laisser MLFlow, XGBoost ou JupyterLab
+# alourdit le build de plusieurs minutes pour des paquets que
+# l'application n'importe jamais.
 #
-# Versions en borne basse (>=) : les épinglages stricts de la version
-# précédente étaient incompatibles avec Python 3.12+.
+# Pour développer (ETL, entraînement, notebooks, tests) :
+#     pip install -r requirements-dev.txt
+#
+# scikit-learn est ÉPINGLÉ à la version qui a sérialisé les modèles :
+# désérialiser un estimateur avec une autre version produit au mieux
+# un avertissement, au pire un modèle silencieusement incorrect.
 # ============================================================
 
-# ── Manipulation de données ─────────────────────────────────
-pandas>=2.2
-numpy>=1.26
-
-# ── Acquisition (notebooks 01x) ─────────────────────────────
-requests>=2.31
-wbgapi>=1.0.12                # World Bank API
-
-# ── Base de données ─────────────────────────────────────────
-sqlalchemy>=2.0
-psycopg2-binary>=2.9.9
-
-# ── Visualisation ───────────────────────────────────────────
-matplotlib>=3.8
-seaborn>=0.13
-plotly>=5.18
-
-# ── Machine Learning ────────────────────────────────────────
-scikit-learn>=1.4
-xgboost>=2.0
-
-# ── MLOps ───────────────────────────────────────────────────
-mlflow>=2.10
-joblib>=1.3
-
-# ── Statistiques (tests EDA) ────────────────────────────────
-scipy>=1.12
-
-# ── Application web ─────────────────────────────────────────
-streamlit>=1.31
-
-# ── Notebooks ───────────────────────────────────────────────
-jupyterlab>=4.0
-ipykernel>=6.29
-ipywidgets>=8.1
-
-# ── Utilitaires ─────────────────────────────────────────────
-python-dotenv>=1.0
-pycountry>=23.12              # codes ISO — requis par etl_pipeline.py
-rapidfuzz>=3.6                # matching FAO ↔ Food_Production (dim_produits)
-tqdm>=4.66
-
-# ── Qualité de code & tests ─────────────────────────────────
-pytest>=8.0
-ruff>=0.3
+streamlit==1.55.0
+pandas==2.3.1
+numpy==2.3.1
+plotly==6.3.0
+scikit-learn==1.7.2
+joblib==1.5.2
+sqlalchemy==2.0.41
+psycopg2-binary==2.9.10
+python-dotenv==1.0.1

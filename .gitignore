@@ -625,6 +625,9 @@ models/*
 !data/.gitkeep
 !models/.gitkeep
 !models/README.md
+# Modeles versionnes via Git LFS : Streamlit Community Cloud clone le depot,
+# sans ces artefacts l'application demarre en mode degrade.
+!models/*.pkl
 
 # Claude Code
 .claude/

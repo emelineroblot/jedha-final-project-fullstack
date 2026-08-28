@@ -143,7 +143,7 @@ Schéma détaillé : [`docs/schema_db.dbml`](docs/schema_db.dbml) (visualisable 
 │   └── streamlit_app.py          # Application, 4 pages
 ├── config/
 │   ├── setup_venv.sh             # Installation de l'environnement
-│   └── requirements.txt          # → délègue à ../requirements.txt
+│   └── requirements.txt          # → délègue à ../requirements-dev.txt
 ├── data/raw/                     # CSV sources (non versionnés)
 ├── deployment/
 │   └── Dockerfile                # Image de l'application
@@ -157,7 +157,7 @@ Schéma détaillé : [`docs/schema_db.dbml`](docs/schema_db.dbml) (visualisable 
 │   ├── deploiement_aws.md        # Procédure AWS RDS
 │   ├── metrics.json              # Métriques mesurées
 │   └── mlflow_runs.csv           # Export du suivi d'expériences
-├── models/                       # Artefacts entraînés (non versionnés)
+├── models/                       # Artefacts entraînés (versionnés via Git LFS)
 ├── notebooks/
 │   ├── 01_exploration_naive.ipynb
 │   ├── 01b_enrichissement_faostat.ipynb
@@ -196,6 +196,7 @@ cd jedha-final-project-fullstack
 # 1. Environnement virtuel + dépendances
 bash config/setup_venv.sh
 source .venv/bin/activate          # .venv/Scripts/activate sous Windows
+#    (installe requirements-dev.txt : ETL, entraînement, notebooks, tests)
 
 # 2. Credentials
 cp docker/.env.example .env        # valeurs par défaut fonctionnelles en local
@@ -270,6 +271,9 @@ le compte maître est réservé à l'ETL et aux migrations.
 ---
 
 ## Modèles
+
+Les trois artefacts sont **versionnés via Git LFS** (26,7 Mo au total) : sans
+eux dans le dépôt, l'application déployée démarrerait en mode dégradé.
 
 | Artefact | Modèle | Taille | Rôle |
 |---|---|---|---|

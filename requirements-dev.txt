@@ -1,0 +1,46 @@
+# ============================================================
+# Environnement de DÉVELOPPEMENT complet.
+# Reprend les dépendances de l'application, plus tout ce qui sert
+# à l'ETL, à l'entraînement, aux notebooks et aux tests.
+#
+#     pip install -r requirements-dev.txt
+# ============================================================
+
+-r requirements.txt
+
+# ── Acquisition des données (notebooks 01x) ─────────────────
+requests>=2.31
+wbgapi>=1.0.12                # World Bank API
+
+# ── ETL ─────────────────────────────────────────────────────
+pycountry>=23.12              # codes ISO — requis par etl_pipeline.py
+rapidfuzz>=3.6                # appariement FAO ↔ Food_Production
+
+# ── Visualisation (EDA) ─────────────────────────────────────
+matplotlib>=3.8
+seaborn>=0.13
+
+# ── Machine Learning ────────────────────────────────────────
+xgboost>=2.0
+
+# ── MLOps ───────────────────────────────────────────────────
+mlflow>=2.10
+
+# ── Statistiques (tests d'hypothèses) ───────────────────────
+scipy>=1.12
+
+# ── Notebooks ───────────────────────────────────────────────
+jupyterlab>=4.0
+ipykernel>=6.29
+ipywidgets>=8.1
+
+# ── Utilitaires ─────────────────────────────────────────────
+tqdm>=4.66
+
+# ── Qualité de code & tests ─────────────────────────────────
+pytest>=8.0
+ruff>=0.3
+
+# ── Certificats système (Windows derrière un antivirus qui
+#    intercepte le TLS — cf. CLAUDE.md) ─────────────────────
+truststore>=0.9
