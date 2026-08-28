@@ -642,8 +642,14 @@ mlartifacts/
 Contexte_projet.txt
 synthese.md
 
-# Audit interne (local uniquement)
+# Documents de travail internes — local uniquement.
+# Le reste de docs/ EST versionne : ce sont des livrables attendus par
+# l'enonce (rgpd.md, gestion_projet.md, impact.md, deploiement_aws.md,
+# metrics.json, mlflow_runs.csv, schema_db.dbml).
 docs/audit.md
+docs/livrables-soutenance.md
+docs/soutenance.md
+docs/journal-session.md
 
 # Secrets Streamlit (jamais versionnes)
 .streamlit/secrets.toml
