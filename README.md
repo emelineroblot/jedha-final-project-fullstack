@@ -160,7 +160,7 @@ Schéma détaillé : [`docs/schema_db.dbml`](docs/schema_db.dbml) (visualisable 
 │   ├── deploiement_aws.md        # Procédure AWS RDS
 │   ├── metrics.json              # Métriques mesurées
 │   └── mlflow_runs.csv           # Export du suivi d'expériences
-├── models/                       # Artefacts entraînés, versionnés (28 Mo au total)
+├── models/                       # 3 modèles entraînés, versionnés en blobs Git (26,7 Mo)
 ├── notebooks/
 │   ├── 01_exploration_naive.ipynb
 │   ├── 01b_enrichissement_faostat.ipynb
@@ -180,6 +180,12 @@ Schéma détaillé : [`docs/schema_db.dbml`](docs/schema_db.dbml) (visualisable 
 
 > Les notebooks documentent la **démarche exploratoire**. Les scripts de
 > `scripts/` en sont la version industrialisée : ce sont eux qui font foi.
+
+> **Pourquoi les modèles ne sont pas en Git LFS.** Streamlit Community Cloud ne récupère
+> pas les objets LFS au clone : les `.pkl` arrivent sous forme de pointeurs de quelques
+> centaines d'octets et l'application démarre sans modèle. Les trois artefacts sont donc
+> versionnés en blobs Git ordinaires — 26,7 Mo au total, le plus gros faisant 23,5 Mo,
+> sous la limite GitHub de 100 Mo par fichier.
 
 ---
 
