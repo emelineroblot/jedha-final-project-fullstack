@@ -421,6 +421,72 @@ def query_production_par_categorie(engine, iso3: str, annee: int) -> pd.DataFram
     """, {"iso3": iso3, "annee": int(annee)})
 
 
+def query_production_par_produit(engine, iso3: str, annee: int) -> pd.DataFrame:
+    """Production détaillée **par produit** — le grain d'entraînement du modèle.
+
+    C'est cette requête, et non l'agrégat par catégorie, qui doit alimenter les
+    prédictions : le modèle a appris sur des quantités de produits individuels,
+    et un RandomForest interrogé au-delà de sa plage d'entraînement ne renvoie
+    pas une extrapolation mais une constante. Cf. docs/audit.md §3.2.
+    """
+    return query(engine, """
+        SELECT
+            pr.produit_id,
+            pr.nom_fao,
+            pr.categorie,
+            SUM(f.quantite_1000t) AS quantite_1000t,
+            MAX(fi.co2_total_per_kg) AS co2_total_per_kg
+        FROM fait_impact_pays_annee f
+        JOIN dim_pays     p  ON f.pays_id    = p.pays_id
+        JOIN dim_temps    t  ON f.annee_id   = t.annee_id
+        JOIN dim_produits pr ON f.produit_id = pr.produit_id
+        LEFT JOIN fait_impact fi ON fi.produit_id = pr.produit_id
+        WHERE p.code_iso3 = :iso3
+          AND t.annee = :annee
+          AND f.quantite_1000t > 0
+          AND f.co2_total_kg IS NOT NULL
+        GROUP BY pr.produit_id, pr.nom_fao, pr.categorie
+        ORDER BY quantite_1000t DESC
+    """, {"iso3": iso3, "annee": int(annee)})
+
+
+def co2_reference_kg(produits: pd.DataFrame, facteur: float = 1.0) -> float:
+    """Empreinte **exacte**, recalculée depuis les facteurs d'émission du DWH.
+
+    `co2_total_kg = quantite_1000t × 1e6 × co2_total_per_kg` — c'est la formule
+    même qu'utilise l'ETL pour construire la cible. Cette valeur n'est donc pas
+    une prédiction : c'est la référence à laquelle comparer le modèle. L'écart
+    entre les deux mesure ce que le RandomForest perd en approximant une
+    relation déterministe. Cf. docs/audit.md §4.1.
+    """
+    if produits.empty or "co2_total_per_kg" not in produits:
+        return float("nan")
+    q = produits["quantite_1000t"].to_numpy() * facteur * 1e6
+    f = pd.to_numeric(produits["co2_total_per_kg"], errors="coerce").to_numpy()
+    return float(np.nansum(q * f))
+
+
+def predire_co2_par_produit(model, produits: pd.DataFrame, socio: dict,
+                            facteur: float = 1.0) -> np.ndarray:
+    """Prédit le CO₂ (kg) de chaque produit, en une seule passe vectorisée.
+
+    `facteur` multiplie toutes les quantités — c'est le levier des scénarios.
+    Le modèle prédit `log1p(co2)` : d'où l'`expm1` en sortie.
+    """
+    if produits.empty:
+        return np.array([])
+    X = pd.DataFrame({
+        "quantite_1000t":    produits["quantite_1000t"].to_numpy() * facteur,
+        "pib_per_capita":    socio["pib"],
+        "taux_urbanisation": socio["urba"],
+        "population":        socio["pop"],
+        "surface_agricole":  socio["surf"],
+        "categorie":         produits["categorie"].to_numpy(),
+        "region":            socio["region"],
+    })
+    return np.expm1(model.predict(X))
+
+
 @st.cache_data(ttl=3600)
 def query_categories(_engine) -> list:
     """Catégories réellement présentes en base, triées par empreinte décroissante."""
@@ -1005,7 +1071,13 @@ elif page == "📈 Prédiction Scénarios":
     st.title("📈 Prédiction & Scénarios")
     st.markdown(
         "Sélectionnez un pays et une catégorie alimentaire, puis simulez l'impact "
-        "d'une variation de production sur l'empreinte CO₂ — modèle RandomForest (R²=0.930)."
+        "d'une variation de production sur l'empreinte CO₂."
+    )
+    st.caption(
+        "La variation est appliquée à **chaque produit** de la catégorie, et les "
+        "prédictions sont sommées. Le modèle ayant été entraîné au grain produit, "
+        "l'interroger sur un total de catégorie le placerait hors de son domaine "
+        "de validité — où un RandomForest ne renvoie plus qu'une constante."
     )
 
     if not connected:
@@ -1045,23 +1117,31 @@ elif page == "📈 Prédiction Scénarios":
     # ── Chargement données pays ─────────────────────────────────
     pays_row = None
     quantite_base = None
-    prod_df = pd.DataFrame()          # initialisé : référencé plus bas hors de ce bloc
+    produits_df = pd.DataFrame()      # grain produit — alimente les prédictions
+    produits_cat = pd.DataFrame()     # produits de la catégorie sélectionnée
     if iso3_sc:
         pays_agg_sc = enrich_pays_df(query_pays_annee(engine, annee_sc))
         match = pays_agg_sc[pays_agg_sc["iso3"] == iso3_sc]
         if not match.empty:
             pays_row = match.iloc[0]
 
-        prod_df = query_production_par_categorie(engine, iso3_sc, annee_sc)
-        prod_cat = prod_df[prod_df["categorie"] == categorie]
-        quantite_base = float(prod_cat["quantite_1000t"].iloc[0]) if not prod_cat.empty else None
+        produits_df = query_production_par_produit(engine, iso3_sc, annee_sc)
+        produits_cat = produits_df[produits_df["categorie"] == categorie]
+        quantite_base = float(produits_cat["quantite_1000t"].sum()) if not produits_cat.empty else None
 
     with col_s1:
         if quantite_base is not None:
             st.info(
                 f"Production réelle de **{categorie}** en {annee_sc} : "
-                f"**{quantite_base:,.0f} kt**"
+                f"**{quantite_base:,.0f} kt** "
+                f"répartis sur **{len(produits_cat)} produit(s)**"
             )
+            with st.expander(f"Détail des {len(produits_cat)} produits"):
+                st.dataframe(
+                    produits_cat[["nom_fao", "quantite_1000t"]]
+                    .rename(columns={"nom_fao": "Produit", "quantite_1000t": "Production (kt)"}),
+                    use_container_width=True, hide_index=True,
+                )
         else:
             st.warning(f"Aucune production de **{categorie}** enregistrée pour {pays_sc_name} en {annee_sc}.")
 
@@ -1071,46 +1151,68 @@ elif page == "📈 Prédiction Scénarios":
         if pays_row is None or quantite_base is None:
             st.info("Sélectionnez un pays avec des données disponibles pour cette année et catégorie.")
         else:
-            pib      = pays_row["pib_per_capita"]   if pd.notna(pays_row["pib_per_capita"])   else 5000.0
-            urba     = pays_row["taux_urbanisation"] if pd.notna(pays_row["taux_urbanisation"]) else 50.0
-            pop      = pays_row["population"]        if pd.notna(pays_row["population"])        else 50e6
-            surf     = pays_row["surface_agricole"]  if pd.notna(pays_row["surface_agricole"])  else 40.0
-            region   = pays_row["region"]
+            socio = {
+                "pib":    pays_row["pib_per_capita"]    if pd.notna(pays_row["pib_per_capita"])    else 5000.0,
+                "urba":   pays_row["taux_urbanisation"] if pd.notna(pays_row["taux_urbanisation"]) else 50.0,
+                "pop":    pays_row["population"]        if pd.notna(pays_row["population"])        else 50e6,
+                "surf":   pays_row["surface_agricole"]  if pd.notna(pays_row["surface_agricole"])  else 40.0,
+                "region": pays_row["region"],
+            }
 
-            def make_input(qty_val):
-                return pd.DataFrame([{
-                    "quantite_1000t":    qty_val,
-                    "pib_per_capita":    pib,
-                    "taux_urbanisation": urba,
-                    "population":        pop,
-                    "surface_agricole":  surf,
-                    "categorie":         categorie,
-                    "region":            region,
-                }])
+            # Le scénario s'applique à CHAQUE produit de la catégorie, et les
+            # prédictions sont sommées. Le modèle reste ainsi dans son domaine
+            # d'entraînement, au lieu de recevoir un total de catégorie qui en
+            # sort de plusieurs ordres de grandeur. Cf. docs/audit.md §3.2.
+            facteur = 1 + variation / 100
+            co2_base_kg = float(predire_co2_par_produit(
+                model_impact, produits_cat, socio).sum())
+            co2_modif_kg = float(predire_co2_par_produit(
+                model_impact, produits_cat, socio, facteur=facteur).sum())
+            delta_kg = co2_modif_kg - co2_base_kg
+            delta_pct = (delta_kg / co2_base_kg * 100) if co2_base_kg > 0 else 0
 
-            qty_modif = quantite_base * (1 + variation / 100)
-
-            co2_base_kg  = np.expm1(model_impact.predict(make_input(quantite_base))[0])
-            co2_modif_kg = np.expm1(model_impact.predict(make_input(qty_modif))[0])
-            delta_kg     = co2_modif_kg - co2_base_kg
-            delta_pct    = (delta_kg / co2_base_kg * 100) if co2_base_kg > 0 else 0
-
-            # Avertissement d'extrapolation : un RandomForest ne sait pas
-            # extrapoler, il sature sur la feuille la plus proche.
-            if max(quantite_base, qty_modif) > q_max_train:
+            # Contrôle d'extrapolation, désormais au bon grain : il ne se
+            # déclenche plus que pour un produit réellement hors plage.
+            q_max_simule = float((produits_cat["quantite_1000t"] * facteur).max())
+            if q_max_simule > q_max_train:
+                hors = produits_cat[produits_cat["quantite_1000t"] * facteur > q_max_train]
                 st.warning(
-                    f"⚠️ **Extrapolation.** La quantité simulée "
-                    f"({max(quantite_base, qty_modif):,.0f} kt) dépasse le maximum vu à "
-                    f"l'entraînement ({q_max_train:,.0f} kt). Le modèle est entraîné au "
-                    f"grain **produit** ; les quantités agrégées par **catégorie** sortent "
-                    f"de son domaine de validité et la prédiction sature. "
-                    f"À lire comme une tendance, pas comme une valeur."
+                    f"⚠️ **Extrapolation sur {len(hors)} produit(s).** La quantité "
+                    f"simulée atteint {q_max_simule:,.0f} kt, au-delà du maximum vu à "
+                    f"l'entraînement ({q_max_train:,.0f} kt). Le modèle sature sur ces "
+                    f"produits : à lire comme une tendance, pas comme une valeur."
                 )
 
             m1, m2, m3 = st.columns(3)
             m1.metric("CO₂ actuel",       fmt_co2(co2_base_kg))
             m2.metric("CO₂ scénario",     fmt_co2(co2_modif_kg), delta=f"{delta_pct:+.1f}%")
             m3.metric("Variation absolue", ("+" if delta_kg >= 0 else "−") + fmt_co2(abs(delta_kg)))
+
+            # ── Référence déterministe ─────────────────────────
+            # L'empreinte est exactement calculable : quantité × facteur. On
+            # l'affiche à côté de la prédiction pour rendre visible l'écart du
+            # modèle plutôt que de le masquer.
+            ref_base = co2_reference_kg(produits_cat)
+            ref_modif = co2_reference_kg(produits_cat, facteur)
+            if not np.isnan(ref_base) and ref_base > 0:
+                ecart = (co2_base_kg - ref_base) / ref_base * 100
+                st.markdown("**Contrôle — modèle contre calcul exact**")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Référence actuelle", fmt_co2(ref_base))
+                c2.metric("Référence scénario", fmt_co2(ref_modif),
+                          delta=f"{(ref_modif / ref_base - 1) * 100:+.1f}%")
+                c3.metric("Écart du modèle", f"{ecart:+.1f} %",
+                          help="Écart entre la prédiction du RandomForest et "
+                               "l'empreinte recalculée depuis les facteurs d'émission.")
+                st.caption(
+                    "La référence est obtenue par `quantité × facteur d'émission`, "
+                    "la formule que l'ETL utilise pour construire la cible du modèle. "
+                    "Une variation de production s'y répercute donc **proportionnellement** : "
+                    f"+{variation} % de production ⇒ +{variation} % d'empreinte. "
+                    "Le modèle, lui, approxime — l'écart affiché est le prix de cette "
+                    "approximation, et c'est précisément ce qui montre que cette tâche "
+                    "est un calcul déterministe plus qu'une prédiction."
+                )
 
             fig_comp = go.Figure()
             fig_comp.add_bar(
@@ -1127,52 +1229,87 @@ elif page == "📈 Prédiction Scénarios":
             )
             st.plotly_chart(fig_comp, use_container_width=True)
 
-            # Courbe de sensibilité
+            # Courbe de sensibilité — une seule passe de prédiction pour tous
+            # les points, en empilant (produit × variation) dans un seul lot.
             st.subheader("Sensibilité CO₂ selon la variation de production")
             variations = list(range(-80, 201, 10))
-            co2_vals = [
-                kg_to_mt(np.expm1(model_impact.predict(make_input(quantite_base * (1 + v / 100)))[0]))
-                for v in variations
-            ]
-            df_sens = pd.DataFrame({"Variation (%)": variations, "CO₂ (Mt)": co2_vals})
+            lots = []
+            for v in variations:
+                lot = produits_cat[["categorie", "quantite_1000t"]].copy()
+                lot["quantite_1000t"] *= 1 + v / 100
+                lot["_variation"] = v
+                lots.append(lot)
+            lot_total = pd.concat(lots, ignore_index=True)
+            preds = predire_co2_par_produit(model_impact, lot_total, socio)
+            co2_par_variation = (
+                pd.Series(preds).groupby(lot_total["_variation"]).sum().reindex(variations)
+            )
+            ref_vals = [kg_to_mt(co2_reference_kg(produits_cat, 1 + v / 100))
+                        for v in variations]
+            df_sens = pd.DataFrame({
+                "Variation (%)": variations,
+                "Modèle (RandomForest)": kg_to_mt(co2_par_variation.to_numpy()),
+                "Calcul exact (référence)": ref_vals,
+            })
             fig_sens = px.line(
-                df_sens, x="Variation (%)", y="CO₂ (Mt)",
+                df_sens, x="Variation (%)",
+                y=["Modèle (RandomForest)", "Calcul exact (référence)"],
                 markers=True,
                 title=f"Sensibilité — {categorie} · {pays_sc_name}",
+                labels={"value": "CO₂ (Mt)", "variable": ""},
+                color_discrete_map={"Modèle (RandomForest)": "#3498db",
+                                    "Calcul exact (référence)": "#2ecc71"},
             )
             fig_sens.add_vline(x=0, line_dash="dash", line_color="gray")
             fig_sens.add_vline(x=variation, line_color="red", annotation_text=f"{variation:+}%")
+            fig_sens.update_layout(legend=dict(orientation="h", y=1.12, x=0))
             st.plotly_chart(fig_sens, use_container_width=True)
+            st.caption(
+                "La référence est une droite : l'empreinte est proportionnelle à la "
+                "production. L'écart entre les deux courbes est la marge d'erreur du "
+                "modèle — visible plutôt que dissimulée."
+            )
 
     # ── Comparaison par catégorie (productions réelles du pays) ─
-    if pays_row is not None and not prod_df.empty:
+    if pays_row is not None and not produits_df.empty:
         st.markdown("---")
         st.subheader(f"Empreinte CO₂ par catégorie — {pays_sc_name} ({annee_sc})")
-        co2_by_cat = []
-        for _, cat_row in prod_df.iterrows():
-            x = pd.DataFrame([{
-                "quantite_1000t":    cat_row["quantite_1000t"],
-                "pib_per_capita":    pays_row["pib_per_capita"]   if pd.notna(pays_row["pib_per_capita"])   else 5000.0,
-                "taux_urbanisation": pays_row["taux_urbanisation"] if pd.notna(pays_row["taux_urbanisation"]) else 50.0,
-                "population":        pays_row["population"]        if pd.notna(pays_row["population"])        else 50e6,
-                "surface_agricole":  pays_row["surface_agricole"]  if pd.notna(pays_row["surface_agricole"])  else 40.0,
-                "categorie":         cat_row["categorie"],
-                "region":            pays_row["region"],
-            }])
-            co2_by_cat.append({
-                "Catégorie":     cat_row["categorie"],
-                "CO₂ (Mt)":      kg_to_mt(np.expm1(model_impact.predict(x)[0])),
-                "Production (kt)": cat_row["quantite_1000t"],
-            })
 
-        df_cat = pd.DataFrame(co2_by_cat).sort_values("CO₂ (Mt)", ascending=False)
+        socio_pays = {
+            "pib":    pays_row["pib_per_capita"]    if pd.notna(pays_row["pib_per_capita"])    else 5000.0,
+            "urba":   pays_row["taux_urbanisation"] if pd.notna(pays_row["taux_urbanisation"]) else 50.0,
+            "pop":    pays_row["population"]        if pd.notna(pays_row["population"])        else 50e6,
+            "surf":   pays_row["surface_agricole"]  if pd.notna(pays_row["surface_agricole"])  else 40.0,
+            "region": pays_row["region"],
+        }
+        # Prédiction produit par produit, puis agrégation par catégorie :
+        # le modèle n'est jamais sollicité hors de son domaine.
+        preds_kg = predire_co2_par_produit(model_impact, produits_df, socio_pays)
+        df_cat = (
+            produits_df.assign(co2_kg=preds_kg)
+            .groupby("categorie", as_index=False)
+            .agg(co2_kg=("co2_kg", "sum"),
+                 quantite=("quantite_1000t", "sum"),
+                 n_produits=("produit_id", "count"))
+            .rename(columns={"categorie": "Catégorie"})
+        )
+        df_cat["CO₂ (Mt)"] = kg_to_mt(df_cat["co2_kg"])
+        df_cat["Production (kt)"] = df_cat["quantite"]
+        df_cat = df_cat.sort_values("CO₂ (Mt)", ascending=False)
+
         fig_cat = px.bar(
             df_cat, x="Catégorie", y="CO₂ (Mt)", color="Catégorie",
-            hover_data={"Production (kt)": ":,.0f"},
+            hover_data={"Production (kt)": ":,.0f", "n_produits": True,
+                        "co2_kg": False, "quantite": False},
             title=f"CO₂ prédit par catégorie — productions réelles de {pays_sc_name}",
+            labels={"n_produits": "Produits"},
         )
         fig_cat.update_layout(showlegend=False, height=400)
         st.plotly_chart(fig_cat, use_container_width=True)
+        st.caption(
+            f"Somme de {len(produits_df)} prédictions au grain produit, agrégées par "
+            f"catégorie — et non une prédiction unique sur un total de catégorie."
+        )
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1268,6 +1405,14 @@ elif page == "📐 Méthodologie & limites":
             "facteur. Son R² élevé mesure une reconstitution arithmétique, pas un "
             "pouvoir prédictif. Il est conservé comme **calculateur** de scénarios, "
             "ce qu'il fait correctement."
+        )
+        st.info(
+            "**La page Prédiction affiche les deux.** À côté de la prédiction du "
+            "modèle figure le **calcul exact** (`quantité × facteur d'émission`), "
+            "ainsi que l'écart entre les deux. Le modèle estime bien le *niveau* "
+            "d'empreinte (écart de l'ordre de ±5 %), mais restitue moins bien sa "
+            "*sensibilité* à une variation de production. Rendre cet écart visible "
+            "vaut mieux que de le masquer derrière un R² flatteur."
         )
         st.success(
             "**Le modèle B est la vraie démonstration.** Il prédit l'empreinte par "
