@@ -260,12 +260,70 @@ def query(_engine, sql: str, params: dict | None = None) -> pd.DataFrame:
 
 
 def db_available(engine) -> bool:
+    """Teste la connexion et MÉMORISE l'erreur exacte.
+
+    Avaler l'exception rend tout diagnostic impossible à distance : on ne sait
+    plus distinguer une base éteinte, un pare-feu fermé et des identifiants
+    absents. L'erreur est donc conservée pour être affichée (sans le mot de
+    passe, que psycopg2 ne place jamais dans ses messages).
+    """
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
+        st.session_state.pop("_db_error", None)
         return True
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        st.session_state["_db_error"] = f"{type(exc).__name__}: {exc}"
         return False
+
+
+def afficher_diagnostic_db() -> None:
+    """Panneau de diagnostic : la cible visée et la raison exacte de l'échec."""
+    host = conf("POSTGRES_HOST", "localhost")
+    est_local = host in ("localhost", "127.0.0.1")
+
+    if est_local:
+        st.error(
+            "**La configuration pointe sur `localhost`.** En ligne, cela signifie "
+            "que les secrets ne sont pas lus : l'application est retombée sur ses "
+            "valeurs par défaut."
+        )
+    else:
+        st.error(f"**Base injoignable** — cible : `{host}`")
+
+    with st.expander("Diagnostic détaillé", expanded=True):
+        st.write({
+            "POSTGRES_HOST": host,
+            "POSTGRES_PORT": conf("POSTGRES_PORT", "5432"),
+            "POSTGRES_DB": conf("POSTGRES_DB", "food_impact"),
+            "POSTGRES_USER": conf("POSTGRES_USER", "food_user"),
+            "POSTGRES_SSLMODE": conf("POSTGRES_SSLMODE", "prefer"),
+            "mot de passe fourni": bool(conf("POSTGRES_PASSWORD", "")),
+            "source": "variables d'environnement" if os.getenv("POSTGRES_HOST")
+                      else "st.secrets" if not est_local else "valeurs par défaut",
+        })
+        err = st.session_state.get("_db_error")
+        if err:
+            st.code(err, language="text")
+            bas = err.lower()
+            if "timeout" in bas or "timed out" in bas:
+                st.warning(
+                    "**Délai dépassé** → le port 5432 ne répond pas. Le groupe de "
+                    "sécurité AWS n'autorise pas l'adresse appelante. Pour un accès "
+                    "depuis Streamlit Cloud, dont les IP ne sont pas fixes, la règle "
+                    "entrante doit être ouverte à `0.0.0.0/0`."
+                )
+            elif "password authentication failed" in bas:
+                st.warning("**Identifiants refusés** → vérifier `POSTGRES_PASSWORD`.")
+            elif "does not exist" in bas:
+                st.warning("**Base ou rôle inexistant** → vérifier `POSTGRES_DB` et `POSTGRES_USER`.")
+            elif "no encryption" in bas or "ssl" in bas:
+                st.warning("**TLS exigé** → `POSTGRES_SSLMODE` doit valoir `require`.")
+
+        if est_local:
+            st.caption(
+                "En local : `docker compose -f docker/docker-compose.yml up -d`"
+            )
 
 
 @st.cache_data(ttl=3600)
@@ -593,10 +651,7 @@ model_impact, model_clustering = load_models()
 pays_df, annees_df = load_ref_data(engine, connected)
 
 if not connected:
-    st.warning(
-        "Base de données non disponible. "
-        "Démarrez PostgreSQL avec `docker compose -f docker/docker-compose.yml up -d`."
-    )
+    afficher_diagnostic_db()
 
 if model_impact is None:
     st.warning(
@@ -618,7 +673,8 @@ if page == "🗺️ Explorer les pays":
     st.title("🗺️ Explorer les pays")
 
     if not connected:
-        st.error("Cette page nécessite la connexion à la base de données PostgreSQL.")
+        st.error("Cette page nécessite la connexion à la base de données.")
+        afficher_diagnostic_db()
         st.stop()
 
     # ── Filtres ────────────────────────────────────────────────
@@ -1098,7 +1154,8 @@ elif page == "📈 Prédiction Scénarios":
     )
 
     if not connected:
-        st.error("Cette page nécessite la connexion à la base de données PostgreSQL.")
+        st.error("Cette page nécessite la connexion à la base de données.")
+        afficher_diagnostic_db()
         st.stop()
     if model_impact is None:
         st.error(
