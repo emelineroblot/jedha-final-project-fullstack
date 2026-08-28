@@ -2,6 +2,7 @@
 
 > **Jedha — Data Science Fullstack · Projet final, Bloc 6 « Lead a Data Project »**
 
+[![CI](https://github.com/emelineroblot/jedha-final-project-fullstack/actions/workflows/ci.yml/badge.svg)](https://github.com/emelineroblot/jedha-final-project-fullstack/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg)](https://www.postgresql.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B.svg)](https://streamlit.io)
@@ -139,6 +140,8 @@ Schéma détaillé : [`docs/schema_db.dbml`](docs/schema_db.dbml) (visualisable 
 
 ```
 .
+├── .github/
+│   └── workflows/ci.yml          # CI : ruff + pytest à chaque push sur main
 ├── app/
 │   └── streamlit_app.py          # Application, 4 pages
 ├── config/
@@ -157,7 +160,7 @@ Schéma détaillé : [`docs/schema_db.dbml`](docs/schema_db.dbml) (visualisable 
 │   ├── deploiement_aws.md        # Procédure AWS RDS
 │   ├── metrics.json              # Métriques mesurées
 │   └── mlflow_runs.csv           # Export du suivi d'expériences
-├── models/                       # Artefacts entraînés (versionnés via Git LFS)
+├── models/                       # Artefacts entraînés, versionnés (28 Mo au total)
 ├── notebooks/
 │   ├── 01_exploration_naive.ipynb
 │   ├── 01b_enrichissement_faostat.ipynb
@@ -249,6 +252,10 @@ ruff check app scripts tests
 # Suivi d'expériences
 mlflow ui                                       # → http://localhost:5000
 ```
+
+> Les deux commandes de qualité (`ruff check` et `pytest -q`) sont rejouées
+> automatiquement par la CI GitHub Actions à chaque push sur `main` et sur chaque
+> pull request — cf. `.github/workflows/ci.yml` et le badge en haut de page.
 
 ### Déploiement sur AWS RDS
 
