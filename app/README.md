@@ -1,5 +1,9 @@
 # 🌐 Application Streamlit
 
+**En ligne :** <https://jedha-final-project-fullstack-dpl9tczf8bellrlxjw4enc.streamlit.app/>
+
+En local :
+
 ```bash
 streamlit run app/streamlit_app.py      # → http://localhost:8501
 ```
@@ -42,4 +46,5 @@ docker run --rm -p 8501:8501 --env-file .env food-impact-app
 ```
 
 Streamlit Community Cloud : connecter le dépôt, pointer sur
-`app/streamlit_app.py`, renseigner les `POSTGRES_*` dans les Secrets.
+`app/streamlit_app.py`, **fixer Python à 3.12** (Advanced settings) et renseigner
+les `POSTGRES_*` dans les Secrets. Procédure et pièges : `docs/deploiement_aws.md` §8.
