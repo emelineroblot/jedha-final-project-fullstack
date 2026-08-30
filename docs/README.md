@@ -7,9 +7,15 @@
 | `impact.md` | Valeur métier, utilisateurs cibles, valorisation |
 | `schema_db.dbml` | Schéma de l'entrepôt — visualisable sur [dbdiagram.io](https://dbdiagram.io/) |
 | `metrics.json` | Métriques des 3 modèles, générées par `scripts/train_model.py` |
-| `mlflow_runs.csv` | Export des runs MLFlow (`mlruns/` étant trop volumineux pour git) |
+| `mlflow_runs.csv` | Export des 11 runs MLFlow (`mlruns/` étant trop volumineux pour git) |
 | `exploration_summary.json` | Sortie de l'exploration initiale |
 | `audit.md` | Audit qualité interne — **non versionné**, local uniquement |
+
+> `mlflow_runs.csv` est la **source consultable** du suivi d'expériences : `mlruns/` n'est
+> pas versionné, donc sur un dépôt cloné l'interface MLFlow est vide tant que
+> `scripts/train_model.py` n'a pas tourné. Pour l'ouvrir en local, depuis la racine du
+> dépôt : **`python -m mlflow ui`** (et non `mlflow ui` — l'exécutable n'est pas toujours
+> dans le `PATH`).
 
 ## Sources & licences
 

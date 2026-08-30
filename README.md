@@ -276,13 +276,29 @@ python scripts/train_model.py --only clustering
 pytest -q
 ruff check app scripts tests
 
-# Suivi d'expériences
-mlflow ui                                       # → http://localhost:5000
+# Suivi d'expériences — depuis la racine du dépôt
+python -m mlflow ui                             # → http://localhost:5000
 ```
 
 > Les deux commandes de qualité (`ruff check` et `pytest -q`) sont rejouées
 > automatiquement par la CI GitHub Actions à chaque push sur `main` et sur chaque
 > pull request — cf. `.github/workflows/ci.yml` et le badge en haut de page.
+
+### Lire le suivi d'expériences
+
+Le tracking MLFlow est un **file store local** (`mlflow.set_tracking_uri("file:./mlruns")`),
+pas un serveur : rien n'est déployé, l'interface se lance à la demande.
+
+- **`python -m mlflow ui`**, et non `mlflow ui` : selon l'installation, le dossier
+  `Scripts/` de Python n'est pas dans le `PATH` et l'exécutable `mlflow` reste
+  introuvable. Passer par `python -m` fonctionne dans tous les cas.
+- **Depuis la racine du dépôt** : MLFlow lit `./mlruns` relativement au dossier courant.
+  Lancé depuis `notebooks/`, il ouvrirait l'autre store, celui de la phase exploratoire.
+- **`mlruns/` n'est pas versionné.** Sur un dépôt fraîchement cloné l'interface est donc
+  vide : lancer `scripts/train_model.py` pour la peupler, ou lire directement
+  [`docs/mlflow_runs.csv`](docs/mlflow_runs.csv), qui contient les 11 runs et leurs métriques.
+- Les runs journalisent **les métriques et les tags, pas les artefacts** : l'onglet
+  *Artifacts* est vide par construction. Les modèles sérialisés sont dans `models/`.
 
 ### Déploiement sur AWS RDS
 
