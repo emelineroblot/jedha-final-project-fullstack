@@ -2,10 +2,10 @@
 
 > **Jedha — Data Science Fullstack · Projet final, Bloc 6 « Lead a Data Project »**
 
+[![Dashboard en ligne](https://img.shields.io/badge/Dashboard-en%20ligne-FF4B4B.svg)](https://jedha-final-project-fullstack-dpl9tczf8bellrlxjw4enc.streamlit.app/)
 [![CI](https://github.com/emelineroblot/jedha-final-project-fullstack/actions/workflows/ci.yml/badge.svg)](https://github.com/emelineroblot/jedha-final-project-fullstack/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg)](https://www.postgresql.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B.svg)](https://streamlit.io)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 Nourrir huit milliards d'êtres humains représente **26 % des émissions mondiales
@@ -18,8 +18,25 @@ un entrepôt unique de **973 227 lignes**, exposé par une application web.
 
 ---
 
+## 🔗 Démo en ligne
+
+### 👉 **[Ouvrir le dashboard](https://jedha-final-project-fullstack-dpl9tczf8bellrlxjw4enc.streamlit.app/)**
+
+<https://jedha-final-project-fullstack-dpl9tczf8bellrlxjw4enc.streamlit.app/>
+
+L'application tourne sur **Streamlit Community Cloud**, branchée sur la base de
+production **AWS RDS PostgreSQL** (`eu-north-1`, Stockholm). Rien à installer :
+les quatre pages sont manipulables directement.
+
+> ⏱️ Streamlit Community Cloud met l'application en veille après une période
+> d'inactivité. **Le premier chargement peut prendre ~30 secondes**, les suivants
+> sont immédiats.
+
+---
+
 ## Sommaire
 
+- [Démo en ligne](#-démo-en-ligne)
 - [Résultats](#résultats)
 - [Ce que le projet fait](#ce-que-le-projet-fait)
 - [Données](#données)
@@ -87,6 +104,8 @@ runs MLFlow : [`docs/mlflow_runs.csv`](docs/mlflow_runs.csv).
 4. **Expose** le tout dans une application manipulable par un non-technicien.
 
 ### L'application — 4 pages
+
+**En ligne :** <https://jedha-final-project-fullstack-dpl9tczf8bellrlxjw4enc.streamlit.app/>
 
 | Page | Contenu |
 |---|---|
@@ -223,7 +242,9 @@ python scripts/train_model.py --skip-tuning
 streamlit run app/streamlit_app.py
 ```
 
-L'application est servie sur <http://localhost:8501>.
+L'instance locale est alors servie sur <http://localhost:8501>. Pour simplement
+**voir l'application sans rien installer**, l'instance publique est en ligne :
+<https://jedha-final-project-fullstack-dpl9tczf8bellrlxjw4enc.streamlit.app/>
 
 > Les CSV sources doivent être présents dans `data/raw/`. Ils sont exclus du
 > dépôt (94 Mo pour le seul export FAOSTAT) et régénérables via les notebooks
@@ -280,6 +301,22 @@ Procédure complète — création de l'instance, sécurité, migration `pg_dump
 
 L'application se connecte avec un utilisateur **en lecture seule** (`food_app`) ;
 le compte maître est réservé à l'ETL et aux migrations.
+
+### Déploiement de l'application
+
+L'application publique est hébergée sur **Streamlit Community Cloud**, déployée
+depuis `main` (fichier d'entrée `app/streamlit_app.py`, Python 3.12) et branchée
+sur l'instance RDS ci-dessus.
+
+**→ <https://jedha-final-project-fullstack-dpl9tczf8bellrlxjw4enc.streamlit.app/>**
+
+La chaîne est donc complète et vérifiable de bout en bout : APIs sources → ETL →
+entrepôt PostgreSQL sur AWS → modèles → application publique.
+
+Trois pièges ont coûté cher au déploiement — objets Git LFS non récupérés au clone,
+Python 3.14 par défaut sans wheel pour `pandas`/`psycopg2`, et groupe de sécurité
+RDS mal attaché. Ils sont documentés en détail dans
+**[`docs/deploiement_aws.md`](docs/deploiement_aws.md)** §8.
 
 ---
 
